@@ -1,4 +1,4 @@
-# In this notebook, we demultiplex each PBMC library using cellranger multi. 
+# In this script, we demultiplex each PBMC library using cellranger multi. 
 #
 # We run cellranger on a distinct remote server for each library. We use tmux to
 # keep the session going while we are logged off. 
