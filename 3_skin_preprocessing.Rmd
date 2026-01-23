@@ -1,0 +1,545 @@
+---
+title: "Skin preprocessing"
+output: html_notebook
+---
+
+In this notebook, we perform preprocessing and QC on our skin scRNA-seq data. We have samples for the same time points and patients as for the PBMC CITE-seq data. Clustering and cell type annotation are performed in a follow-up notebook, 4_skin_cell_type_annotation.Rmd. 
+
+First, clear the environment and set the path where the project folder is saved.
+
+```{r}
+# Clear all objects from environment
+rm(list = ls(all.names = TRUE))
+# Free up memory
+gc()
+# Increase max vector memory
+mem.maxVSize(200000)
+
+project_path <- "/Users/juliaelrod/Desktop/cmu/research/scleroderma/paired_skin_and_pbmc/manuscript/code_for_manuscript/"
+```
+
+Now load in useful packages and custom functions.
+
+```{r}
+# Load packages
+packages <- c("Seurat", "dplyr", "tidyr", "SeuratDisk", "harmony", "readr",
+              "ggplot2", "stringr", "SoupX", "dsb", "data.table", "Matrix",
+              "scDblFinder", "scater")
+invisible(lapply(packages, require, character.only = TRUE))
+
+# Source functions
+function_files <- list.files(paste0(project_path, "functions"), pattern = "\\.R$", full.names = TRUE)
+invisible(lapply(function_files, source))
+```
+
+Now, we prepare a Seurat object with one counts matrix for all samples, as well as all necessary metadata.
+
+Prior to preprocessing, we have 87,498 cells total. Since the sample from patient 594 at 6 months only includes 113 cells and suffers from quality issues, we remove it, resulting in a total of 87,385 cells prior to preprocessing.
+
+```{r}
+################################################################################
+## READ & PROCESS META DATA ####################################################
+################################################################################
+
+# Read in patient meta data
+patient_meta_data <- read.csv(paste0(project_path, "data/patient_meta_data.csv"))
+# Remove blank rows
+patient_meta_data <- patient_meta_data %>% filter(if_all(everything(), ~ . != "" & !is.na(.)))
+# Rename columns as desired
+patient_meta_data <- patient_meta_data %>%
+  dplyr::rename(
+    subject = "subject_id",
+    race = "Race",
+    ethnicity = "Ethnicity",
+    sex = "Sex",
+    age_transplant = "Age.at.time.of.ASCT..years.",
+    age_onset = "Age.of.onset..years.",
+    years_with_disease = "Disease.Duration.at.time.of.ASCT..years.",
+    disease_subtype = "Disease.Subtype",
+    auto_antibody_pos = "X....Auto.antibody.positivity",
+    mRSS = "X....mRSS."
+  )
+
+# Turn subject from an integer into a character
+patient_meta_data$subject <- as.character(patient_meta_data$subject)
+
+# Separate treatments into individual rows
+patient_meta_data_long <- patient_meta_data %>%
+  separate_rows(Treatment.prior.to.ASCT, sep = ", ") %>%  # Split treatments into separate rows
+  mutate(Treatment.prior.to.ASCT = trimws(Treatment.prior.to.ASCT))  # Trim spaces
+
+# Create columns for each treatment
+patient_meta_data_treatments <- patient_meta_data_long %>%
+  mutate(value = TRUE) %>%  # Add a value column to indicate presence
+  pivot_wider(names_from = Treatment.prior.to.ASCT,
+              values_from = value,
+              values_fill = list(value = FALSE))  # Fill with FALSE if not present
+
+# Merge back with original metadata
+patient_meta_data <- patient_meta_data %>%
+  select(subject, race, ethnicity,sex, age_transplant, age_onset, years_with_disease, disease_subtype) %>%
+  left_join(patient_meta_data_treatments, by = "subject")
+
+# Remove major manifestations column
+patient_meta_data$Major.manifestations <- NULL
+
+################################################################################
+## READ IN COUNTS MATRICES #####################################################
+################################################################################
+#
+# # Get paths to cellranger multi output
+# cellranger_paths <- list.files(paste0(project_path, "data/cellranger_output/skin/filtered"), full.names = TRUE)
+# 
+# # Get sample names
+# samp_names <- list.files(paste0(project_path, "data/cellranger_output/skin/filtered"))
+# 
+# # Read 10x output
+# cellranger_output <- lapply(cellranger_paths, Read10X)
+# 
+# # Save as RDS files
+# mapply(saveRDS, cellranger_output, paste0(project_path, "data/RDS_files/counts/skin/gex/", samp_names, "_gex.RDS"))
+
+# Read in RDS files
+gex_paths <- list.files(paste0(project_path, "data/RDS_files/counts/skin/gex"), pattern = "\\.RDS$", full.names = TRUE)
+
+# Read in counts
+gex_list <- lapply(gex_paths, readRDS)
+
+# Name elements according to corresponding sample
+sample_ids <- sub("_gex\\.RDS$", "", basename(gex_paths))
+names(gex_list) <- sample_ids
+
+################################################################################
+## CREATE SEURAT OBJECT ########################################################
+################################################################################
+
+# We need V5 to use JoinLayers later (but will have to create a v3 object
+# to use with SeuratDisk)
+options(Seurat.object.assay.version = "v5")
+
+#### GEX #######################################################################
+# List of Seurat objects (1 for each sample)
+scler_gex_list <- lapply(gex_list,
+                         CreateSeuratObject,
+                         project = "scler_skin_scRNA-seq",
+                         assay = "RNA")
+
+
+# Combine into one Seurat object
+scler_gex_obj <- merge(scler_gex_list[[1]],
+                        scler_gex_list[-1],
+                        add.cell.ids = sample_ids,
+                        project = "scler_skin_scRNA-seq")
+# Join layers
+scler_skin <- JoinLayers(scler_gex_obj)
+
+################################################################################
+## ADD META DATA TO SEURAT OBJECTS #############################################
+################################################################################
+
+### (a) sample ID ##############################################################
+scler_skin$sample_id <- sub("_(?!.*_).*",
+                                   "",
+                                   rownames(scler_skin@meta.data),
+                                   perl = TRUE)
+
+### (b) subject ################################################################
+scler_skin@meta.data <- scler_skin@meta.data %>%
+  mutate(
+    subject = case_when(
+      grepl("^h", sample_id) ~ sample_id,  # Healthy controls start with 'h'
+      TRUE ~ sub("_[^_]*$", "", sample_id)  # Everyone else: remove suffix after underscore
+    )
+  )
+
+### (c) health #################################################################
+scler_skin@meta.data <- scler_skin@meta.data %>%
+  mutate(
+    health = case_when(
+      grepl("h", sample_id) ~ "healthy",
+      TRUE ~ "SSc"
+    )
+  )
+
+### (d) group
+scler_skin@meta.data <- scler_skin@meta.data %>%
+  mutate(
+    group = case_when(
+      health == "healthy" ~ "healthy",
+      grepl("baseline", sample_id) ~ "baseline",
+      grepl("six", sample_id) ~ "six",
+      grepl("twelve", sample_id) ~ "twelve",
+      grepl("twen4", sample_id) ~ "twen4"
+    ),
+    group = factor(group, levels = c("healthy", "baseline", "six", "twelve", "twen4"))
+  )
+
+### (e) Add timepoint as a numeric variable for patients
+scler_skin@meta.data <- scler_skin@meta.data %>%
+  mutate(
+    timepoint = case_when(
+      group == "healthy" ~ NA,
+      group == "baseline" ~ 0,
+      group == "six" ~ 6,
+      group == "twelve" ~ 12,
+      group == "twen4" ~ 24
+    )
+  )
+
+
+### (f) Add other patient meta data (while retaining metadata rownames)
+scler_skin@meta.data <- scler_skin@meta.data %>%
+  tibble::rownames_to_column("cell_id") %>%
+  left_join(patient_meta_data, by = "subject") %>%
+  tibble::column_to_rownames("cell_id")
+
+################################################################################
+## GET RID OF TRAILING 1s  #####################################################
+################################################################################
+
+colnames(scler_skin) <- colnames(scler_skin) %>%
+  gsub("-1$", "", .)
+
+################################################################################
+## SAVE SERURAT OBJECT #########################################################
+################################################################################
+
+# We need to turn this V5 Seurat object into a V3 Seurat object to be compatible
+# with SeuratDisk
+options(Seurat.object.assay.version = "v3")
+# Create object with RNA and metadata
+scler_skin <- CreateSeuratObject(counts = scler_skin@assays$RNA$counts,
+                                 meta.data = scler_skin@meta.data,
+                                 project = scler_skin@project.name)
+
+# See how many cells there are per sample.
+scler_skin$sample_id %>% table()
+# 594 six months only has 113 cells. We have thoroughly investigated this, and determined the sample does in fact suffer from quality issues. We will thus exclude it:
+scler_skin <- subset(scler_skin, sample_id != "594_six")
+
+# Save as H5
+SaveH5Seurat(scler_skin,
+             paste0(project_path, "data/h5seurat/skin/scler_skin_1"))
+```
+
+Now, we begin preprocessing
+
+1) Multimodal multiplet detection with COMPOSITE.
+
+First, we extract the RNA counts matrix, filter out genes with > 50% zeroes, and save as mtx file.
+
+```{r}
+scler_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/scler_skin_1.h5seurat"))
+
+# Extract RNA
+rna <- scler_skin@assays$RNA@counts
+
+# Filter out genes with > 50% zeroes.
+# Starting with 38606 genes
+# Calculate proportion of zeros for each gene
+rna_prop_zero <- (rna == 0) %>% rowMeans()
+# Filter out genes with more than 50% zeros
+rna <- rna[names(which(rna_prop_zero < 0.5)), ]
+# We are left with 244 genes
+
+# Write to mtx file
+rna %>% writeMM(file = paste0(project_path, "data/composite/skin/RNA.mtx"))
+```
+
+Composite is implemented in Python in the file, composite_skin.py.
+
+See https://github.com/CHPGenetics/COMPOSITE
+
+We import the multiplet predictions as a CSV file.
+
+We detect 35,314 multiplets (40.36%).
+
+After removing multiplets, 52,184 cells remain.
+
+```{r}
+# Import sccomposite multiplet predictions
+composite_path <- paste0(project_path, "data/composite/skin/multiplet_prediction.csv")
+
+# Add sccomposite labels to Seurat object
+scler_skin$multiplet_label <- read.csv(composite_path) %>% pull(multiplet_classification)
+
+# How many multiplets? 10,568
+scler_skin$multiplet_label %>% sum()
+
+# What percentage of all cells are multiplets? 40.36%
+(scler_skin$multiplet_label %>% sum()) / (scler_skin$multiplet_label %>% length()) * 100
+
+# Remove multiplets 
+scler_skin <- subset(scler_skin, subset = multiplet_label == 0)
+
+# How many remaining cells? 52,119
+scler_skin$multiplet_label %>% length()
+
+# Remove multiplet_label (all zero now)
+scler_skin$multiplet_label <- NULL
+
+# Save as H5
+SaveH5Seurat(scler_skin,
+             paste0(project_path, "data/h5seurat/skin/scler_skin_2"))
+```
+
+2) Ambient RNA removal with SoupX. We run it separately for each sample, since each skin sample was sequenced separately (unlike our PBMC data which was multiplexed).
+
+```{r}
+# Path where cellranger_count outputs are saved
+path_to_cellranger <- paste0(project_path, "data/cellranger_output/skin/")
+
+# Load Seurat object
+scler_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/scler_skin_2.h5seurat"))
+
+# Subjects
+samples <- list.files(paste0(path_to_cellranger, "raw"))
+
+# Load data for raw and filtered wells
+raw_wells <- lapply(samples, function(sample){Read10X(paste0(path_to_cellranger, "raw/", sample))})
+filtered_wells <- lapply(samples, function(sample){Read10X(paste0(path_to_cellranger, "filtered/", sample))})
+
+# Name accordingly
+names(raw_wells) <- names(filtered_wells) <- samples
+
+# Run soup for each sample individually
+soup_wells <- mapply(run_soup,
+                    raw_counts = raw_wells,
+                    filtered_counts = filtered_wells,
+                    subject = samples,
+                    SIMPLIFY = F)
+
+# Save as RDS
+saveRDS(soup_wells, paste0(project_path, "data/RDS_files/soup_wells/skin_soup.RDS"))
+
+# Open RDS of SoupX output
+soup_wells <- readRDS(paste0(project_path, "data/RDS_files/soup_wells/skin_soup.RDS"))
+
+# Let's look at fraction of contamination in each sample
+# Ranges from 1.3-2.4%
+
+for (samp in samples) {
+  prop_contamination <- soup_wells[[samp]]$sc$metaData$rho
+  print(paste0(samp, ": ", unique(prop_contamination)))
+}
+
+# Change dashes to underscores in scler_skin cell names
+colnames(scler_skin) <- gsub("-", "_", colnames(scler_skin))
+
+# Merge into one big matrix
+counts_adj <- do.call(cbind, lapply(soup_wells, function(x){x$adj_counts}))
+
+# Are there any cells filtered out by cellranger count that were "rescued" by cellranger multi?
+# Nope, no extra cells!
+extra_cells <- setdiff(colnames(scler_skin), colnames(counts_adj))
+
+# Now, subset counts_adj to only include cells in scler_skin
+counts_adj <- counts_adj[, Cells(scler_skin)]
+
+# Adjust original object
+scler_skin[["RNA"]]$counts <- counts_adj
+
+# Save as H5
+SaveH5Seurat(scler_skin, paste0(project_path, "data/h5seurat/skin/scler_skin_3"))
+```
+
+3) Quality control based on RNA features
+
+Now, we perform some basic quality control, removing cells which express outlier quantities unique genes, total transcripts, percentage of mitochondrial DNA, or percentage of ribosomal DNA than the other sampled cells.
+
+After this filtering step, we retain 36,895 cells.
+
+```{r}
+# ################################################################################
+# ## LOAD SEURAT OBJECT #########################################################
+# ################################################################################
+
+scler_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/scler_skin_3.h5seurat"))
+
+# ################################################################################
+# ## FILTERING AND QC ############################################################
+# ################################################################################
+
+# Add metadata for percentage of mitochondrial and ribosomal DNA
+scler_skin[["percent.mt"]] <- PercentageFeatureSet(scler_skin, pattern = "^MT-", assay = "RNA")
+scler_skin[["percent.ribo"]] <- PercentageFeatureSet(scler_skin, pattern = "^RP[SL]", assay = "RNA")
+
+# Now, look check violin plots for:
+#    - nFeature_RNA: number of unique genes expressed per cell
+#    - nCount_RNA: total number of RNA transcripts detected per cell
+#    - percent.mt: percentage of reads that map to the mitochondrial genome, and
+#    - percent.ribo: percentage of reads that map to the ribosomal genome.
+VlnPlot(scler_skin, features = c("nFeature_RNA"), pt.size = 0, group.by = "sample_id")
+VlnPlot(scler_skin, features = c("nCount_RNA"), pt.size = 0, group.by = "sample_id")
+VlnPlot(scler_skin, features = c("percent.mt"), pt.size = 0, group.by = "sample_id")
+VlnPlot(scler_skin, features = c("percent.ribo"), pt.size = 0, group.by = "sample_id")
+
+# Identify cells as "outliers" if median absolute deviation for these metrics >= 3
+# Adaptive thresholds are calculated across all samples (same for each sample)
+qc.nCount_RNA <- isOutlier(scler_skin$nCount_RNA, log = TRUE, type = "both")
+qc.nFeature_RNA  <- isOutlier(scler_skin$nFeature_RNA, log = TRUE, type="both")
+qc.percent.mt <- isOutlier(scler_skin$percent.mt, log = FALSE, type = "higher")
+qc.percent.ribo <- isOutlier(scler_skin$percent.ribo, log = FALSE, type = "higher")
+
+# Indicator for whether a cell is an outlier by at least one of this metrics
+scler_skin$outlier_status <- (qc.nCount_RNA | qc.nFeature_RNA | qc.percent.mt | qc.percent.ribo)
+
+# How many cells do we have before filtering?
+print(paste0("cells before filtering: ", ncol(scler_skin))) # 52,119
+
+# Remove outliers
+scler_skin <- subset(scler_skin,
+                     outlier_status == F)
+# Remove outlier_status variable
+scler_skin$outlier_status <- NULL
+
+# How many cells do we have after filtering?
+print(paste0("cells after filtering: ", ncol(scler_skin))) # 41,577
+
+# Check plots again
+VlnPlot(scler_skin, features = c("nFeature_RNA"), pt.size = 0, group.by = "sample_id")
+VlnPlot(scler_skin, features = c("nCount_RNA"), pt.size = 0, group.by = "sample_id")
+VlnPlot(scler_skin, features = c("percent.mt"), pt.size = 0, group.by = "sample_id")
+VlnPlot(scler_skin, features = c("percent.ribo"), pt.size = 0, group.by = "sample_id")
+
+# Now, let's apple PER-SAMPLE filtering
+qc.nCount_RNA_0 <- isOutlier(scler_skin$nCount_RNA, log = TRUE, type = "both", batch = scler_skin$sample_id)
+qc.nFeature_RNA_0  <- isOutlier(scler_skin$nFeature_RNA, log = TRUE, type="both", batch = scler_skin$sample_id)
+qc.percent.mt_0 <- isOutlier(scler_skin$percent.mt, log = FALSE, type = "higher", batch = scler_skin$sample_id)
+qc.percent.ribo_0 <- isOutlier(scler_skin$percent.ribo, log = FALSE, type = "higher",  batch = scler_skin$sample_id)
+
+# Indicator for whether a cell is an outlier by at least one of this metrics
+scler_skin$outlier_status_0 <- (qc.nCount_RNA_0 | qc.nFeature_RNA_0 | qc.percent.mt_0 | qc.percent.ribo_0)
+
+# Remove outliers
+scler_skin <- subset(scler_skin,
+                     outlier_status_0 == F)
+# Remove outlier_status_0 variable
+scler_skin$outlier_status_0 <- NULL
+
+# How many cells do we have after filtering?
+print(paste0("cells after filtering: ", ncol(scler_skin))) # 36,875
+
+# Check plots again
+VlnPlot(scler_skin, features = c("nFeature_RNA"), pt.size = 0, group.by = "sample_id")
+VlnPlot(scler_skin, features = c("nCount_RNA"), pt.size = 0, group.by = "sample_id")
+VlnPlot(scler_skin, features = c("percent.mt"), pt.size = 0, group.by = "sample_id")
+VlnPlot(scler_skin, features = c("percent.ribo"), pt.size = 0, group.by = "sample_id")
+
+# Save Seurat object
+SaveH5Seurat(scler_skin, paste0(project_path, "data/h5seurat/skin/scler_skin_4"))
+```
+
+We'll save these thresholds in a text file for future reference.
+
+```{r}
+# Universal
+qc_features <- list("nCount_RNA" = qc.nCount_RNA,
+                 "nFeature_RNA" = qc.nFeature_RNA,
+                 "percent.mt" = qc.percent.mt,
+                 "percent.ribo" = qc.percent.ribo)
+threshold_list <- lapply(qc_features, attr, "thresholds")
+
+# By sample
+qc_features_by_sample <- list("nCount_RNA" = qc.nCount_RNA_0,
+                 "nFeature_RNA" = qc.nFeature_RNA_0,
+                 "percent.mt" = qc.percent.mt_0,
+                 "percent.ribo" = qc.percent.ribo_0)
+threshold_list_by_sample <- lapply(qc_features_by_sample, attr, "thresholds")
+
+sink(paste0(project_path, "data/qc/skin_thresholds.txt"))
+cat("(1) Universal thresholds \n"); threshold_list; cat("(2) Thresholds by sample \n"); threshold_list_by_sample
+sink
+```
+
+4) Gene filtering
+
+We will filter genes that are lowly expressed as well. Before filtering, we have 38,606 genes.
+
+We only consider expression in patients, as we do not include healthy controls in our model.
+
+```{r}
+# Load Seurat object
+scler_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/scler_skin_4.h5seurat"))
+
+# Take subset of just patients
+scler_skin@meta.data <- scler_skin@meta.data %>%
+  mutate(
+    health = case_when(
+      is.na(timepoint) ~ "healthy",
+      TRUE ~ "SSc"
+    )
+  )
+patient_subset <- subset(scler_skin, health == "SSc")
+
+# Aggregate expression by sample
+pb_patient <- PseudobulkExpression(patient_subset,
+                     group.by = "sample_id",
+                     return.seurat = F,
+                     layer = "counts",
+                     method = "aggregate") %>%
+    .[["RNA"]] %>% suppressWarnings()
+# Restore colnames
+colnames(pb_patient) <- gsub("^g", "", colnames(pb_patient))
+colnames(pb_patient) <- gsub("-", "_", colnames(pb_patient))
+# Convert to CPM
+pb_patient_cpm <- sweep(pb_patient, 2, colSums(pb_patient), "/") * 10e6
+
+# Get timepoint vector
+agg_timepoint <- sub(".*_", "", colnames(pb_patient))
+
+# Get a list of genes that has a count >= 3 for at least two patients at at least one time point.
+baseline_keep <- (pb_patient_cpm[, agg_timepoint == "baseline"] > 3) %>% rowSums() >= 2
+six_keep <- (pb_patient_cpm[, agg_timepoint == "six"] > 3) %>% rowSums() >= 2
+twelve_keep <- (pb_patient_cpm[, agg_timepoint == "twelve"] > 3) %>% rowSums() >= 2
+twen4_keep <- (pb_patient_cpm[, agg_timepoint == "twen4"] > 3) %>% rowSums() >= 2
+any_keep <- baseline_keep | six_keep | twelve_keep | twen4_keep
+new_genes <- names(any_keep)[any_keep]
+
+# How many genes before filtering? 38606
+print(paste0("Genes before filtering: ", nrow(scler_skin)))
+
+# Subset RNA assay
+scler_skin[["RNA"]] <- subset(scler_skin[["RNA"]], features = new_genes)
+
+# How many genes after filtering? 26786
+print(paste0("Genes after filtering: ", nrow(scler_skin)))
+
+# Save H5
+SaveH5Seurat(scler_skin, paste0(project_path, "data/h5seurat/skin/scler_skin_5"))
+```
+
+After filtering, we have 26,786 genes.
+
+5) Normalize & scale RNA data
+
+We've now denoised and filtered the RNA data. Lets normalize and scale it.
+
+```{r}
+# Load Seurat object
+scler_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/scler_skin_5.h5seurat"))
+
+# Normalize, find variable features (default 2000), and scale 
+scler_skin <- NormalizeData(scler_skin) %>%
+  FindVariableFeatures() %>%
+  ScaleData(features = rownames(scler_skin))
+
+# Save as H5
+SaveH5Seurat(scler_skin, paste0(project_path, "data/h5seurat/skin/scler_skin_6"))
+```
+
+6) Batch integration
+
+Now, we integrate the RNA data using harmony to account for batch effects.
+
+```{r}
+# Load Seurat object
+scler_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/scler_skin_6.h5seurat"))
+
+scler_skin <- RunPCA(scler_skin) %>%
+  RunHarmony(group.by.vars = "sample_id", reduction.use = "pca", dims.use = 1:30, verbose = TRUE)
+
+# Save as H5
+SaveH5Seurat(scler_skin, paste0(project_path, "data/h5seurat/skin/scler_skin_7"))
+```
+

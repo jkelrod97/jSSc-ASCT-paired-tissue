@@ -1,0 +1,345 @@
+---
+title: "Skin cell type annotation"
+output: html_notebook
+---
+
+This notebook is a follow-up to 3_skin_preprocessing.Rmd. After preprocessing our skin data, we are ready to perform  clustering and cell type annotation.
+
+First, clear the environment and set the path where the project folder is saved.
+
+```{r}
+# Clear all objects from environment
+rm(list = ls(all.names = TRUE))
+# Free up memory
+gc()
+# Increase max vector memory
+mem.maxVSize(200000)
+
+project_path <- "/Users/juliaelrod/Desktop/cmu/research/scleroderma/paired_skin_and_pbmc/manuscript/code_for_manuscript/"
+```
+
+Now load in useful packages and custom functions.
+
+```{r}
+# Load packages
+packages <- c("Seurat", "dplyr", "tidyr", "SeuratDisk", "harmony", "readr",
+              "ggplot2", "stringr", "SoupX", "dsb", "data.table", "Matrix",
+              "scDblFinder", "scater")
+invisible(lapply(packages, require, character.only = TRUE))
+
+# Source functions
+function_files <- list.files(paste0(project_path, "functions"), pattern = "\\.R$", full.names = TRUE)
+invisible(lapply(function_files, source))
+```
+
+Now, we load in the Seurat object we generated in the previous notebook.
+
+```{r}
+# Load Seurat object
+scler_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/scler_skin_7.h5seurat"))
+
+# Run FindNeighbors (twice, we need the graph for FindClusters and the neighbors for RunUMAP), FindClusters, and RunUMAP
+scler_skin <- FindNeighbors(scler_skin, return.neighbor = F) %>% # Return graph for FindClusters
+  FindClusters(algorithm = 3) %>%
+  FindNeighbors(return.neighbor = T) %>% # Return neighbors for RunUMAP
+  RunUMAP(nn.name = "RNA.nn")
+
+# Save as H5
+SaveH5Seurat(scler_skin, paste0(project_path, "data/h5seurat/skin/scler_skin_8"))
+```
+
+Now, we use Seurat's FindMarkers function to get differentially expressed genes for each cluster.
+
+```{r}
+scler_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/scler_skin_8.h5seurat"))
+
+# We need the group variable to include healthy
+library(forcats)
+scler_skin$group <- fct_explicit_na(scler_skin$group, na_level = "healthy")
+
+# Take a look
+DimPlot(scler_skin, label = T, repel = T)
+
+# # # Get markers by cluster
+# skin_de <- FindAllMarkers(scler_skin)
+# # Save as RDS
+# saveRDS(skin_de, paste0(project_path, "data/RDS_files/markers/skin/skin_de.RDS"))
+skin_de <- readRDS(paste0(project_path, "data/RDS_files/markers/skin/skin_de.RDS"))
+```
+
+Now we annotate each cluster based on canonical RNA markers. We remove 4,438 cells that appear to be erythrocytes (contamination), taking us from 36,895 cells to 32,444 cells.
+
+```{r}
+# Data frame to store cell types
+cell_types <- data.frame(seurat_clusters = levels(scler_skin$seurat_clusters),
+                         cell_type = NA)
+
+# Function to update cell_types
+update_cell_types <- function(df, cluster, cell_type = NA) {
+  df[df$seurat_clusters == cluster, "cell_type"] <- cell_type
+  return(df)
+}
+
+################################################################################
+#  CLUSTER 0                                                                   #
+#  MARKERS: KRT1, KRT14, KRT10, KRT5                                           #
+#  MAJOR CELL TYPE: keratinocyte                                               #
+################################################################################
+display_top(skin_de, 0)
+cell_types <- update_cell_types(cell_types, 0, cell_type = "keratinocyte")
+################################################################################
+#  CLUSTER 1                                                                   #
+#  MARKERS: KRT1, KRT14, KRT10, KRT5                                           #
+#  MAJOR CELL TYPE: keratinocyte                                               #
+################################################################################
+display_top(skin_de, 1)
+krt_genes <- c("KRTCAP2", "KRTCAP3", "KRTAP5-AS1", "KRTAP5-8", "KRTAP5-11", "KRT80", "KRT7", "KRT86", "KRT81", "KRT85", "KRT82", "KRT75", "KRT6B", "KRT6C", "KRT6A", "KRT5", "KRT71", "KRT74", "KRT72", "KRT73-AS1", "KRT73", "KRT2", "KRT1", "KRT77", "KRT4", "KRT79", "KRT78", "KRT8", "KRT18", "KRT222", "KRT25", "KRT27", "KRT28", "KRT10", "KRT10-AS1", "KRT12", "KRT20", "KRT23", "KRT39", "KRTAP3-1", "KRTAP1-5", "KRTAP2-3", "KRTAP4-5", "KRTAP9-3", "KRTAP9-4", "KRTAP17-1", "KRT31", "KRT32", "KRT35", "KRT36", "KRT13", "KRT15", "KRT19", "KRT9", "KRT14", "KRT16", "KRT17", "KRT42P", "KRTDAP", "KRTAP19-1", "KRTAP19-5", "KRTAP11-1")
+skin_de %>% filter(gene %in% krt_genes & cluster == 1)
+cell_types <- update_cell_types(cell_types, 1, cell_type = "keratinocyte")
+################################################################################
+#  CLUSTER 2                                                                   #
+#  MARKERS: KRT14, KRT10, KRT5                                                 #
+#  MAJOR CELL TYPE: keratinocyte                                               #
+################################################################################
+display_top(skin_de, 2)
+skin_de %>% filter(gene %in% krt_genes & cluster == 2)
+cell_types <- update_cell_types(cell_types, 2, cell_type = "keratinocyte")
+################################################################################
+#  CLUSTER 3                                                                   #
+#  MARKERS: COL1A1, COL1A2, COL3A1                                             #
+#  MAJOR CELL TYPE: fibroblast                                                 #
+################################################################################
+display_top(skin_de, 3)
+cell_types <- update_cell_types(cell_types, 3, cell_type = "fibroblast")
+################################################################################
+#  CLUSTER 4                                                                   #
+#  MARKERS: HBA1, HBA2, GYPC                                                   #
+#  MAJOR CELL TYPE: erythrocyte (contamination)                                #
+################################################################################
+display_top(skin_de, 4)
+skin_de %>% filter(gene %in% c("HBA1", "HBA2", "GYPC") & cluster == 4)
+cell_types <- update_cell_types(cell_types, 4, cell_type = "erythrocyte")
+################################################################################
+#  CLUSTER 5                                                                   #
+#  MARKERS: KRT1, KRT10                                                        #
+#  MAJOR CELL TYPE: keratinocyte                                               #
+################################################################################
+display_top(skin_de, 5)
+skin_de %>% filter(gene %in% krt_genes & cluster == 5)
+cell_types <- update_cell_types(cell_types, 5, cell_type = "keratinocyte")
+################################################################################
+#  CLUSTER 6                                                                  #
+#  https://www.biocompare.com/Editorial-Articles/598462-A-Guide-to-Endothelial #
+#  -Cell-Markers/                                                              #
+#  MARKERS: PECAM1, VWF, CDH5, EMCN, ERG                                       #
+#  MAJOR CELL TYPE: endothelial                                                #
+################################################################################
+display_top(skin_de, 6)
+endothelial_markers <- c("PECAM1", "VWF", "CDH5", "EMCN", "ERG")
+DotPlot(scler_skin, endothelial_markers)
+cell_types <- update_cell_types(cell_types, 6, cell_type = "endothelial cell")
+################################################################################
+#  CLUSTER 7                                                                   #
+#  MARKERS: HBA1, HBA2, GYPC                                                   #
+#  MAJOR CELL TYPE: erythrocyte (contamination)                                #
+################################################################################
+display_top(skin_de, 7)
+skin_de %>% filter(gene %in% c("HBA1", "HBA2", "GYPC") & cluster == 7)
+cell_types <- update_cell_types(cell_types, 7, cell_type = "erythrocyte")
+################################################################################
+#  CLUSTER 8                                                                   #
+#  https://pmc.ncbi.nlm.nih.gov/articles/PMC9827426/#:~:                       #
+#  text=CAII%2C%20NKCC1%20and%20En1%20were%20specific%20markers%20of%20eccrine%#
+#  20sweat,Figure%203C1;%20Table%202).                                         #
+#  MARKERS: CA2, SLC12A2, EN1                                                  #
+#  MAJOR CELL TYPE: eccrine gland                                              #
+################################################################################
+display_top(skin_de, 8)
+eccrine_gland_markers <- c("CA2", "SLC12A2", "EN1")
+skin_de %>% filter(gene %in% eccrine_gland_markers & cluster == 8)
+skin_de %>% filter(gene == "EPCAM" & cluster == 8)
+cell_types <- update_cell_types(cell_types, 8, cell_type = "eccrine gland")
+################################################################################
+#  CLUSTER 9                                                                   #
+#  MARKERS: ACTA2, TAGLN                                                       #
+#  MAJOR CELL TYPE: smooth muscle                                              #
+################################################################################
+display_top(skin_de, 9)
+sm_markers <- c("ACTA2", "TAGLN")
+FeaturePlot(scler_skin, sm_markers, label = T)
+skin_de %>% filter(gene %in% sm_markers & cluster == 9)
+cell_types <- update_cell_types(cell_types, 9, cell_type = "smooth muscle cell")
+################################################################################
+#  CLUSTER 10                                                                  #
+#  MARKERS: KRT14, KRT10, KRT5                                                 #
+#  MAJOR CELL TYPE: keratinocyte                                               #
+################################################################################
+display_top(skin_de, 10)
+FeaturePlot(scler_skin, krt_genes, label = T)
+skin_de %>% filter(gene %in% krt_genes & cluster == 10)
+cell_types <- update_cell_types(cell_types, 10, cell_type = "keratinocyte")
+################################################################################
+#  CLUSTER 11                                                                  #
+#  https://www.biocompare.com/Editorial-Articles/598462-A-Guide-to-Endothelial #
+#  -Cell-Markers/                                                              #
+#  MARKERS: PECAM1, VWF, CDH5, EMCN, ERG                                       #
+#  MAJOR CELL TYPE: endothelial                                                #
+################################################################################
+display_top(skin_de, 11)
+DotPlot(scler_skin, endothelial_markers)
+cell_types <- update_cell_types(cell_types, 11, cell_type = "endothelial cell")
+################################################################################
+#  CLUSTER 12                                                                  #
+#  MARKERS: ACTA2, TAGLN                                                       #
+#  MAJOR CELL TYPE: smooth muscle                                              #
+################################################################################
+display_top(skin_de, 12)
+FeaturePlot(scler_skin, sm_markers, label = T)
+skin_de %>% filter(gene %in% sm_markers & cluster == 12)
+cell_types <- update_cell_types(cell_types, 12, cell_type = "smooth muscle cell")
+################################################################################
+#  CLUSTER 13                                                                  #
+#  MARKERS: CD3E, CD3D, CD3G                                                   #
+#  MAJOR CELL TYPE: T cell                                                     #
+################################################################################
+display_top(skin_de, 13)
+FeaturePlot(scler_skin, c("CD3E", "CD3G", "CD3D"), label = T)
+cell_types <- update_cell_types(cell_types, 13, cell_type = "T cell")
+################################################################################
+#  CLUSTER 14                                                                  #
+#  MARKERS: COL1A1, COL1A2, COL3A1                                             #
+#  MAJOR CELL TYPE: fibroblast                                                 #
+################################################################################
+display_top(skin_de, 14)
+cell_types <- update_cell_types(cell_types, 14, cell_type = "fibroblast")
+################################################################################
+#  CLUSTER 15                                                                  #
+#  MARKERS: SOX10, S100B                                                       #
+#  MAJOR CELL TYPE: Schwann cel                                                #
+################################################################################
+display_top(skin_de, 15)
+schwann_markers <- c("SOX10", "S100B")
+FeaturePlot(scler_skin, schwann_markers, label = T)
+cell_types <- update_cell_types(cell_types, 15, cell_type = "Schwann cell")
+################################################################################
+#  CLUSTER 16                                                                  #
+#  MARKERS: CD14, CD68, CSF1R, MARCO, MRC1
+#  MAJOR CELL TYPE: macrophage                                                 #
+################################################################################
+display_top(skin_de, 17)
+# Macrophage markers
+# https://www.biocompare.com/Editorial-Articles/566347-A-Guide-to-Macrophage-Markers/
+mac_markers <- c("CD14", "CD68", "CSF1R", "MARCO", "MRC1")
+FeaturePlot(scler_skin, mac_markers, label = T)
+DotPlot(scler_skin, mac_markers)
+skin_de %>% filter(gene %in% mac_markers & cluster == 16)
+cell_types <- update_cell_types(cell_types, 16, cell_type = "macrophage")
+################################################################################
+#  CLUSTER 17                                                                   #
+#  https://pmc.ncbi.nlm.nih.gov/articles/PMC9827426/#:~:                       #
+#  text=CAII%2C%20NKCC1%20and%20En1%20were%20specific%20markers%20of%20eccrine%#
+#  20sweat,Figure%203C1;%20Table%202).                                         #
+#  MARKERS: CA2, SLC12A2, EN1                                                  #
+#  MAJOR CELL TYPE: eccrine gland                                              #
+################################################################################
+display_top(skin_de, 17)
+eccrine_gland_markers <- c("CA2", "SLC12A2", "EN1")
+skin_de %>% filter(gene %in% eccrine_gland_markers & cluster == 17)
+skin_de %>% filter(gene == "EPCAM" & cluster == 17)
+cell_types <- update_cell_types(cell_types, 17, cell_type = "eccrine gland")
+################################################################################
+#  CLUSTER 18                                                                  #
+#  https://www.biocompare.com/Editorial-Articles/598462-A-Guide-to-Endothelial #
+#  -Cell-Markers/                                                              #
+#  MARKERS: PECAM1, VWF, CDH5, EMCN, ERG                                       #
+#  MAJOR CELL TYPE: endothelial                                                #
+################################################################################
+display_top(skin_de, 18)
+DotPlot(scler_skin, endothelial_markers)
+cell_types <- update_cell_types(cell_types, 18, cell_type = "endothelial cell")
+################################################################################
+#  CLUSTER 19                                                                  #
+#  MARKERS: ACTA2, TAGLN                                                       #
+#  MAJOR CELL TYPE: smooth muscle                                              #
+################################################################################
+display_top(skin_de, 19)
+FeaturePlot(scler_skin, sm_markers, label = T)
+skin_de %>% filter(gene %in% sm_markers & cluster == 19)
+cell_types <- update_cell_types(cell_types, 19, cell_type = "smooth muscle cell")
+################################################################################
+#  CLUSTER 20                                                                  #
+#  MARKERS: COL1A1, COL1A2                                                     #
+#  MAJOR CELL TYPE: fibroblast                                                 #
+################################################################################
+display_top(skin_de, 20)
+cell_types <- update_cell_types(cell_types, 20, cell_type = "fibroblast")
+################################################################################
+#  CLUSTER 21                                                                  #
+#  MARKERS: KIT, TPSAB1, CPA3                                                  #
+#  MAJOR CELL TYPE: mast cell                                                  #
+################################################################################
+display_top(skin_de, 21)
+mast_cell_markers <- c("KIT", "TPSAB1", "CPA3")
+DotPlot(scler_skin, mast_cell_markers)
+cell_types <- update_cell_types(cell_types, 21, cell_type = "mast cell")
+################################################################################
+#  CLUSTER 22                                                                  #
+#  MARKERS: HBA1, HBA2, GYPC                                                   #
+#  MAJOR CELL TYPE: erythrocyte (contamination)                                #
+################################################################################
+display_top(skin_de, 22)
+skin_de %>% filter(gene %in% c("HBA1", "HBA2", "GYPC") & cluster == 22)
+cell_types <- update_cell_types(cell_types, 22, cell_type = "erythrocyte")
+################################################################################
+#  CLUSTER 23                                                                  #
+#  MARKERS: DCT, MITF, TYR                                                     #
+#  MAJOR CELL TYPE: melanocyte                                                 #
+################################################################################
+display_top(skin_de, 23)
+cell_types <- update_cell_types(cell_types, 23, cell_type = "melanocyte")
+
+# Add cell types to Seurat object
+cell_type_vec <-
+   setNames(as.character(cell_types$cell_type),
+          as.character(cell_types$seurat_clusters))[as.character(scler_skin$seurat_clusters)]
+names(cell_type_vec) <- NULL
+scler_skin$cell_type <- cell_type_vec
+
+# Remove erythrocytes
+# How many cells do we have before removing erythrocytes?
+print(paste0("cells before removing erythrocytes: ", ncol(scler_skin))) # 36875
+scler_skin <- subset(scler_skin, (cell_type != "erythrocyte"))
+# How many cells do we have after removing platelets?
+print(paste0("cells after removing erythrocytes: ", ncol(scler_skin))) # 32514
+
+s <- DimPlot(scler_skin,
+        reduction = "umap",
+        group.by = "cell_type",
+        pt.size = 3,
+        alpha = 0.8,
+        cols = my_colors, 
+        combine = F)[[1]]
+t <- s + labs(title = "Skin cell clusters") + xlab("UMAP coordinate 1") + ylab("UMAP coordinate 2")
+t
+
+# Look at cell type proportions:
+
+# Total cells
+total_cells <- ncol(scler_skin)
+
+# Number of cells per type
+num_cells_per_type <- table(scler_skin$cell_type)
+
+# Pct of cells per type
+pct_cells_per_type <- as.matrix(paste0((round((num_cells_per_type / total_cells), 3) * 100), " %"))
+rownames(pct_cells_per_type) <- names(num_cells_per_type)
+pct_cells_per_type
+
+# Save as PNG
+umap_path <- paste0(project_path, "figures/")
+ggsave(paste0(umap_path, "skin_umap", Sys.Date(), ".png"), t, height = 7, width = 9)
+
+# Save as H5
+SaveH5Seurat(scler_skin, paste0(project_path, "data/h5seurat/skin/scler_skin_9"))
+```
+

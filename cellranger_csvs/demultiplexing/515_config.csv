@@ -1,0 +1,17 @@
+[gene-expression]
+reference,/home/jelrod/software/refdata-gex-GRCh38-2024-A
+cmo-set,/home/jelrod/scl-CITE-SEQ/cellranger_csvs/5p_hashing_dmux_cmo-set.csv
+create-bam,true 
+
+[libraries]
+fastq_id,fastqs,feature_types
+515_GEX_CKDL240024510-1A_22CT32LT4,/home/jelrod/scl-CITE-SEQ/data/515_GEX,Gene Expression
+515_PLX_CKDL240024522-1A_22CT32LT4,/home/jelrod/scl-CITE-SEQ/data/515_PLX,Multiplexing Capture
+
+
+[samples]
+sample_id,cmo_ids
+baseline,Hash-tag1
+six_months,Hash-tag2
+twelve_months,Hash-tag3
+twen4_months,Hash-tag4

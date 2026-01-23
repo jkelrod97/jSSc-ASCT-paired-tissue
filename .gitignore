@@ -1,0 +1,15 @@
+# Mac junk
+.DS_Store
+
+# R data objects
+*.rds
+*.h5seurat
+*.RDataTmp
+*.Rhistory
+
+# Data and figures directories
+data/
+figures/
+
+# Other
+*.html

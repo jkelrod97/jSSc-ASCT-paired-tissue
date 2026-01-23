@@ -1,0 +1,446 @@
+---
+title: "Paired PBMC and skin longitudinal analysis"
+output: html_notebook
+---
+
+In this notebook, we run our paired longitudinal PBMC and skin pseudobulk offset analysis. We use a single model which includes an indicator term for tissue. 
+
+We begin by loading in useful packages and custom functions.
+
+First, clear the environment and set the path where the project folder is saved.
+
+```{r}
+# Clear all objects from environment
+rm(list = ls(all.names = TRUE))
+# Free up memory
+gc()
+# Increase max vector memory
+mem.maxVSize(200000)
+
+project_path <- "/Users/juliaelrod/Desktop/cmu/research/scleroderma/paired_skin_and_pbmc/manuscript/code_for_manuscript/"
+```
+
+Now load in useful packages and custom functions.
+
+```{r}
+# Load packages
+packages <- c("Seurat", "dplyr", "tidyr", "SeuratDisk", "harmony", "readr",
+              "ggplot2", "stringr", "SoupX", "dsb", "data.table", "Matrix",
+              "scDblFinder", "scater")
+invisible(lapply(packages, require, character.only = TRUE))
+
+# Source functions
+function_files <- list.files(paste0(project_path, "functions"), pattern = "\\.R$", full.names = TRUE)
+invisible(lapply(function_files, source))
+```
+
+Now, we load in the most recent Seurat objects for PBMCs and skin, subset out monocytes and macrophages (the focus of our manuscript), and store the data in a single Seurat object. We can only include genes expressed in both tissues, leaving us with 17,836 genes.
+
+```{r}
+# Load in PBMC Seurat object
+scler_pbmc <- LoadH5Seurat(paste0(project_path, "data/h5seurat/PBMC/scler_pbmc_10.h5seurat"))
+
+# Load in skin Seurat object
+scler_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/scler_skin_9.h5seurat"))
+
+# Subset out desired cell types
+# Monocytes (PBMC)
+monocytes_pbmc <-subset(scler_pbmc, cell_type %in% c("CD14+ monocyte", "CD16+ monocyte"))
+# Macrophages (skin)
+macrophages_skin <- subset(scler_skin, cell_type == "macrophage")
+
+# Subset to only include genes expressed in both 
+# Set default assay of monocytes_pbmc to RNA
+DefaultAssay(monocytes_pbmc) <- "RNA"
+# Extract genes in both
+genes_in_both <- intersect(rownames(monocytes_pbmc), rownames(macrophages_skin))
+# We have 17835 genes that met our filtering standards in both tissues (better than the 13,467 we had before we re-aligned the skin samples!)
+genes_in_both %>% length()
+# Subset to only include these genes
+monocytes_pbmc <- monocytes_pbmc[genes_in_both, ]
+macrophages_skin <- macrophages_skin[genes_in_both, ]
+# Get dimensions
+# Monocytes (PBMC): 17,836 genes, 13,899 cells
+# Macrophages (skin): 17,836 genes, 927 cells
+monocytes_pbmc
+macrophages_skin
+
+# Add tissue labels
+monocytes_pbmc$Tissue <- "PBMC"
+macrophages_skin$Tissue <- "skin"
+
+# Merge
+macro_mono_combined <- merge(
+  x = monocytes_pbmc,
+  y = macrophages_skin,
+  add.cell.ids = c("PBMC", "Skin")
+)
+
+# Let's create a new "sample_id_variable" that distinguishes between tissues for each sample
+macro_mono_combined$sample_id_Tissue <- paste0(macro_mono_combined$sample_id, "_", macro_mono_combined$Tissue)
+
+# Let's also set proper levels for group variable
+macro_mono_combined$group <- factor(macro_mono_combined$group, levels = c("healthy", "baseline", "six", "twelve", "twen4"))
+
+# Save as H5
+SaveH5Seurat(macro_mono_combined, paste0(project_path, "data/h5seurat/combined/macro_mono_combined"))
+```
+
+Now, we run the model for both skin macrophages and PBMC monocytes!
+
+```{r}
+# Read in data
+macro_mono_combined <- LoadH5Seurat(paste0(project_path, "data/h5seurat/combined/macro_mono_combined.h5seurat"))
+
+# Design formula for our NB GLM. Covariates are subject (indicator), time, and Tissue (indicator)
+# Center and scale and numeric variables (VERY IMPORTANT--not doing so can lead to numeric instability, missing significant results, etc.)
+# poly() effectively does this for us.
+design_formula <- ~ subject + poly(timepoint) * Tissue
+
+# Fit offset pseudobulk model
+pbo_macro_mono <- pb_offset(
+  seurat_obj = macro_mono_combined,
+  sample_id_variable = "sample_id_Tissue",
+  design_formula = design_formula,
+  subset = ~health == "SSc")
+
+# We test the time coefficient for PBMCs
+pbmc_results <- test_de(pbo_macro_mono$fit, `poly(timepoint)`) %>% arrange(pval) 
+# Now we test the time coefficient for skin
+skin_results <- test_de(pbo_macro_mono$fit, `poly(timepoint)` + `poly(timepoint):Tissueskin`) %>% arrange(pval)
+
+# Filter to only include 'significant' results
+pbmc_results_sig <- pbmc_results %>% filter(pval < 0.1) 
+skin_results_sig <- skin_results %>% filter(pval < 0.1) 
+
+# Extract significant DEGs
+pbmc_DEGs <- pbmc_results_sig$name
+skin_DEGs <- skin_results_sig$name
+
+# How many in each tissue?
+pbmc_DEGs %>% length() # 1346
+skin_DEGs %>% length() # 1765
+
+# Get intersection - 268 genes
+both_DEGs <- intersect(pbmc_DEGs,
+                       skin_DEGs)
+both_DEGs %>% length()
+
+# Genes that both go down
+down_DEGs <- intersect((pbmc_results_sig %>% filter(name %in% both_DEGs & lfc < 0) %>% pull(name)),
+              (skin_results_sig %>% filter(name %in% both_DEGs & lfc < 0) %>% pull(name)))
+# How many? 22
+down_DEGs %>% length()
+
+# Genes that both go up
+up_DEGs <- intersect((pbmc_results_sig %>% filter(name %in% both_DEGs & lfc > 0) %>% pull(name)),
+              (skin_results_sig %>% filter(name %in% both_DEGs & lfc > 0) %>% pull(name)))
+# How many? 25
+up_DEGs %>% length()
+```
+
+Let's plot the DEGs we found with the combined model.
+
+```{r}
+# Down
+plots_down <- plot_pb_offset(pbo = pbo_macro_mono,
+                             genes_to_plot = down_DEGs,
+                             separate_plots_by = "Tissue",
+                             groupBy = "subject",
+                             scale = "log")
+# Save
+mapply(function(gene, ID) {
+         ggsave(paste0(project_path, "/figures/mono_macro_plots/down/", ID, "_", gene, ".png"),
+                   plots_down[[gene]],
+                   width = 18, height = 10)
+       }, down_DEGs, 1:length(down_DEGs)
+)
+
+# Up
+plots_up <- plot_pb_offset(pbo = pbo_macro_mono,
+                             genes_to_plot = up_DEGs,
+                             separate_plots_by = "Tissue",
+                             groupBy = "subject")
+# Save
+mapply(function(gene, ID) {
+         ggsave(paste0(project_path, "/figures/mono_macro_plots/up/", ID, "_", gene, ".png"),
+                   plots_up[[gene]],
+                   width = 18, height = 10)
+       }, up_DEGs, 1:length(up_DEGs)
+)
+```
+
+We're going to check p values for some genes of interest (differentially expressed over time in both tissues + appear in relevant literature)
+
+```{r}
+# Intersting genes with strong trends
+genes_of_interest <- c("SPATA13",
+                       "MED30",
+                       "LINC01841",
+                       "OASL",
+                       "ZNF627",
+                       "CLIP2",
+                       "LSM6",
+                       "KCNK13",
+                       "CITED2",
+                       "MRPS25",
+                       "TMUB2")
+
+# Genes of interest data frame
+goi_df <- lapply(genes_of_interest, function(gene) {
+  data.frame(
+    gene = gene,
+    pbmc_pval = pbmc_results_sig %>% filter(name == gene) %>% pull(pval) %>% round(2),
+    pbmc_lfc  = pbmc_results_sig %>% filter(name == gene) %>% pull(lfc) %>% round(2),
+    skin_pval = skin_results_sig %>% filter(name == gene) %>% pull(pval) %>% round(2),
+    skin_lfc  = skin_results_sig %>% filter(name == gene) %>% pull(lfc) %>% round(2)
+  )
+}) %>% dplyr::bind_rows()
+
+# Print DF
+goi_df
+```
+
+Now we conduct pathway enrichment analysis based off of this tutorial:  https://biostatsquid.com/pathway-enrichment-analysis-tutorial-clusterprofiler/
+
+Setup for Reactome pathway enrichment is below:
+
+```{r}
+# Load packages
+packages_2 <- c("tidyverse", "RColorBrewer", "pheatmap", "clusterProfiler", "enrichplot", "msigdbr")
+invisible(lapply(packages_2, require, character.only = TRUE))
+
+# Get Reactome pathways
+reactome_sets <- msigdbr(species = "human", 
+                         collection = "C2", 
+                         subcollection = "CP:REACTOME")
+
+# TERM2GENE
+term2gene <- reactome_sets %>%
+  select(gs_name, gene_symbol)
+
+# TERM2NAME (readable descriptions)
+term2name <- reactome_sets %>%
+  distinct(gs_name, gs_description)
+
+# Background genes
+background_genes <- pbmc_results$name
+```
+
+Let's run pathway analysis for each tissue separately.
+
+```{r}
+# (1) PBMC
+
+# Add direction (whether expression goes up or down over time) to results data frame
+pbmc_results_sig <- pbmc_results_sig %>% mutate(direction = case_when(
+  lfc > 0 ~ 'UP',
+  lfc < 0 ~ 'DOWN',
+))
+# Split the dataframe into a list of sub-dataframes: upregulated, downregulated genes
+pbmc_results_list <- split(pbmc_results_sig, pbmc_results_sig$direction)
+
+# Run enricher R on each set of genes (up set and down set)
+res_pbmc <- lapply(names(pbmc_results_list),
+              function(x) enricher(
+                  gene = pbmc_results_list[[x]]$name,
+                  TERM2GENE = term2gene,
+                  TERM2NAME = term2name,
+                  universe = background_genes,
+                  pvalueCutoff = 1,  
+                  qvalueCutoff = 1,      
+                  minGSSize = 5,         
+                  maxGSSize = 500
+              ))
+# Name accordingly
+names(res_pbmc) <- names(pbmc_results_list)
+
+# View results for PBMCs
+# DOWN
+res_pbmc$DOWN@result %>% head()
+# UP
+res_pbmc$UP@result %>% head()
+
+# (2) skin
+
+# Add direction (whether expression goes up or down over time) to results data frame
+skin_results_sig <- skin_results_sig %>% mutate(direction = case_when(
+  lfc > 0 ~ 'UP',
+  lfc < 0  ~ 'DOWN',
+))
+# Split the dataframe into a list of sub-dataframes: upregulated, downregulated genes
+skin_results_list <- split(skin_results_sig, skin_results_sig$direction)
+
+# Run enricher R on each set of genes (up set and down set)
+res_skin <- lapply(names(skin_results_list),
+              function(x) enricher(
+                  gene = skin_results_list[[x]]$name,
+                  TERM2GENE = term2gene,
+                  TERM2NAME = term2name,
+                  universe = background_genes,
+                  pvalueCutoff = 1,      
+                  qvalueCutoff = 1,    
+                  minGSSize = 5,        
+                  maxGSSize = 500
+              ))
+# Name accordingly
+names(res_skin) <- names(skin_results_list)
+
+# View results for skin
+# DOWN
+res_skin$DOWN@result %>% head()
+# UP
+res_skin$UP@result %>% head()
+
+
+# Now, let's see if there is any overlap in the identified pathways
+
+# Pathways with DECREASED activity over time in both tissues
+# Get significant PBMC pathways 
+pbmc_down_pathways <- res_pbmc$DOWN@result %>% filter(pvalue < 0.1) %>% rownames()
+# Get significant skin pathways 
+skin_down_pathways <- res_skin$DOWN@result %>% filter(pvalue < 0.1) %>% rownames()
+# Take intersection
+both_down_pathways <- intersect(pbmc_down_pathways, skin_down_pathways)
+
+# Pathways with INCREASED activity over time in both tissues
+# Get significant PBMC pathways 
+pbmc_up_pathways <- res_pbmc$UP@result %>% filter(pvalue < 0.1) %>% rownames()
+# Get significant skin pathways 
+skin_up_pathways <- res_skin$UP@result %>% filter(pvalue < 0.1) %>% rownames()
+# Take intersection
+both_up_pathways <- intersect(pbmc_up_pathways, skin_up_pathways)
+```
+
+Export pathway DFs
+
+```{r}
+# Create data frame for pathways with DECREASED activity over time in both tissues
+down_pathways <- 
+res_pbmc$DOWN[both_down_pathways, ] %>%
+    full_join(res_skin$DOWN[both_down_pathways, ], by = "Description", suffix = c("_pbmc", "_skin"))
+# View
+down_pathways
+
+# Create data frame for pathways with INCREASED activity over time in both tissues
+up_pathways <- 
+  res_pbmc$UP[both_up_pathways, ] %>%
+    full_join(res_skin$UP[both_up_pathways, ], by = "Description", suffix = c("_pbmc", "_skin"))
+up_pathways
+
+# Save as CSV files
+write_csv(down_pathways, paste0(project_path, "/data/pathway_csvs/down_pathways.csv"))
+write_csv(up_pathways, paste0(project_path, "/data/pathway_csvs/up_pathways.csv"))
+```
+
+Prettier version:
+
+```{r}
+# Pretty version of down pathways DF
+down_pretty <- 
+  down_pathways %>% 
+  mutate(
+    pvalue_pbmc = signif(pvalue_pbmc, 3),
+    pvalue_skin = signif(pvalue_skin, 3)
+  ) %>%
+  select(
+    "Pathway" = Description, 
+    "Monocyte P-value" = pvalue_pbmc, 
+    "Monocyte genes" = geneID_pbmc,
+    "Skin macrophage P-value" = pvalue_skin, 
+    "Skin macrophage genes" = geneID_skin
+  )
+# View
+down_pretty
+
+# Pretty version of up pathways DF
+up_pretty <- 
+  up_pathways %>% 
+  mutate(
+    pvalue_pbmc = signif(pvalue_pbmc, 3),
+    pvalue_skin = signif(pvalue_skin, 3)
+  ) %>%
+  select(
+    "Pathway" = Description, 
+    "Monocyte P-value" = pvalue_pbmc, 
+    "Monocyte genes" = geneID_pbmc,
+    "Skin macrophage P-value" = pvalue_skin, 
+    "Skin macrophage genes" = geneID_skin
+  )
+# View
+up_pretty
+
+# Save
+write_csv(down_pretty, paste0(project_path, "/data/pathway_csvs/down_pathways_pretty.csv"))
+write_csv(up_pretty, paste0(project_path, "/data/pathway_csvs/up_pathways_pretty.csv"))
+```
+
+We also export tables (as CSV files) with significant DEGs (p < 0.05) in PBMCs, significant DEGs (p < 0.05) in skin, significant DEGs in both tissues (p < 0.1), DEGs with significantly increased longitudinal expression in both tissues (p < 0.1), and DEGs with significantly decreased longitudinal expression in both tissues (p < 0.1).
+
+```{r}
+# Significant DEGs in PBMCs (p < 0.05)
+PBMC_0.05_DEG_Table <- pbmc_results_sig %>%
+  filter(pval < 0.05) %>%
+  mutate(
+    `P-Value` = signif(pval, 3),
+    LFC = signif(lfc, 3)
+  ) %>%
+  select(
+    Gene = name,
+    `P-Value`,
+    LFC,
+    Direction = direction
+  ) 
+PBMC_0.05_DEG_Table %>%
+  write.csv(paste0(project_path, "data/table_csvs/PBMC_0.05_DEG_Table.csv"), row.names = FALSE, quote = FALSE)
+
+# Significant DEGs in skin (p < 0.05)
+skin_0.05_DEG_Table <- skin_results_sig %>%
+  filter(pval < 0.05) %>%
+  mutate(
+    `P-Value` = signif(pval, 3),
+    LFC = signif(lfc, 3)
+  ) %>%
+  select(
+    Gene = name,
+    `P-Value`,
+    LFC,
+    Direction = direction
+  ) 
+skin_0.05_DEG_Table %>%
+  write.csv(paste0(project_path, "data/table_csvs/skin_0.05_DEG_Table.csv"), row.names = FALSE, quote = FALSE)
+
+# Significant DEGs in both tissues (p < 0.1)
+overlap_258 <- pbmc_results_sig %>% 
+  inner_join(skin_results_sig, by = "name") %>%
+  mutate(
+    `P-Value (PBMC)` = signif(pval.x, 3),
+    `P-Value (skin)` = signif(pval.y, 3),
+    `LFC (PBMC)` = signif(lfc.x, 3),
+    `LFC (skin)` = signif(lfc.y, 3)
+  ) %>% 
+  select(gene = name,
+         `P-Value (PBMC)`,
+         `P-Value (skin)`,
+         `LFC (PBMC)`,
+         `LFC (skin)`,
+         `Direction (PBMC)` = direction.x,
+         `Direction (skin)` = direction.y)
+overlap_258 %>%
+  write.csv(paste0(project_path, "data/table_csvs/overlap_258.csv"), row.names = FALSE, quote = FALSE)
+
+# Signiciantly increasing DEGs in both tissues (p < 0.1)
+shared_up <- overlap_258 %>%
+  filter(`Direction (PBMC)` == "UP" & `Direction (skin)` == "UP")
+shared_up %>%
+  write.csv(paste0(project_path, "data/table_csvs/shared_up.csv"), row.names = FALSE, quote = FALSE)
+
+# Significantly decreasing DEGs in both tissues (p < 0.1)
+shared_down <- overlap_258 %>%
+  filter(`Direction (PBMC)` == "DOWN" & `Direction (skin)` == "DOWN") 
+shared_down %>%
+  write.csv(paste0(project_path, "data/table_csvs/shared_down.csv"), row.names = FALSE, quote = FALSE)
+```
+
+
+
