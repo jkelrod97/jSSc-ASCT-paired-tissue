@@ -411,7 +411,7 @@ skin_0.05_DEG_Table %>%
   write.csv(paste0(project_path, "data/table_csvs/skin_0.05_DEG_Table.csv"), row.names = FALSE, quote = FALSE)
 
 # Significant DEGs in both tissues (p < 0.1)
-overlap_258 <- pbmc_results_sig %>% 
+overlap_268 <- pbmc_results_sig %>% 
   inner_join(skin_results_sig, by = "name") %>%
   mutate(
     `P-Value (PBMC)` = signif(pval.x, 3),
@@ -426,17 +426,17 @@ overlap_258 <- pbmc_results_sig %>%
          `LFC (skin)`,
          `Direction (PBMC)` = direction.x,
          `Direction (skin)` = direction.y)
-overlap_258 %>%
-  write.csv(paste0(project_path, "data/table_csvs/overlap_258.csv"), row.names = FALSE, quote = FALSE)
+overlap_268 %>%
+  write.csv(paste0(project_path, "data/table_csvs/overlap_268.csv"), row.names = FALSE, quote = FALSE)
 
 # Signiciantly increasing DEGs in both tissues (p < 0.1)
-shared_up <- overlap_258 %>%
+shared_up <- overlap_268 %>%
   filter(`Direction (PBMC)` == "UP" & `Direction (skin)` == "UP")
 shared_up %>%
   write.csv(paste0(project_path, "data/table_csvs/shared_up.csv"), row.names = FALSE, quote = FALSE)
 
 # Significantly decreasing DEGs in both tissues (p < 0.1)
-shared_down <- overlap_258 %>%
+shared_down <- overlap_268 %>%
   filter(`Direction (PBMC)` == "DOWN" & `Direction (skin)` == "DOWN") 
 shared_down %>%
   write.csv(paste0(project_path, "data/table_csvs/shared_down.csv"), row.names = FALSE, quote = FALSE)
