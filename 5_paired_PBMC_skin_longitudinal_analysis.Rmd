@@ -82,8 +82,8 @@ macro_mono_combined$sample_id_Tissue <- paste0(macro_mono_combined$sample_id, "_
 # Let's also set proper levels for group variable
 macro_mono_combined$group <- factor(macro_mono_combined$group, levels = c("healthy", "baseline", "six", "twelve", "twen4"))
 
-# Save as H5
-SaveH5Seurat(macro_mono_combined, paste0(project_path, "data/h5seurat/combined/macro_mono_combined"))
+# # Save as H5
+# SaveH5Seurat(macro_mono_combined, paste0(project_path, "data/h5seurat/combined/macro_mono_combined"))
 ```
 
 Now, we run the model for both skin macrophages and PBMC monocytes!
