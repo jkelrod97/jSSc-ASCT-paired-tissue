@@ -51,6 +51,8 @@ sub_cluster <- function(obj,
                         k.weight = 100,
                         k.score = 30,
                         knn.range = 200) {
+  # Store object's original default assay
+  orig_assay <- DefaultAssay(obj)
   
   # Remove old clusters
   obj$seurat_clusters <- NULL
@@ -153,6 +155,8 @@ sub_cluster <- function(obj,
       print(DimPlot(obj, label = T, cols = my_colors, reduction = "umap"))
     }
   }
+  # Reset to original default assay
+  DefaultAssay(obj) <- orig_assay
   return(obj)
 }
 

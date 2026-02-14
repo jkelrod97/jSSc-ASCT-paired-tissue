@@ -57,7 +57,7 @@ genes_in_both <- intersect(rownames(monocytes_pbmc), rownames(macrophages_skin))
 # We have 17835 genes that met our filtering standards in both tissues (better than the 13,467 we had before we re-aligned the skin samples!)
 genes_in_both %>% length()
 # Subset to only include these genes
-monocytes_pbmc <- monocytes_pbmc[genes_in_both, ]
+monocytes_pbmc <- subset(monocytes_pbmc, features = c(genes_in_both, rownames(monocytes_pbmc[["ADT"]])))
 macrophages_skin <- macrophages_skin[genes_in_both, ]
 # Get dimensions
 # Monocytes (PBMC): 17,836 genes, 13,899 cells
@@ -442,5 +442,455 @@ shared_down %>%
   write.csv(paste0(project_path, "data/table_csvs/shared_down.csv"), row.names = FALSE, quote = FALSE)
 ```
 
+We want to see if our DEGs of interest are expressed in clusters of monocytes/macrophages, or if they are expressed uniformly throughout the population. 
 
+To investigate this, we will sub-cluster monocytes and macrophages. 
+
+```{r}
+# monocytes_pbmc <- monocytes_pbmc %>%
+#   sub_cluster(res = 0.4)
+# # Save this UMAP/clustering
+# SaveH5Seurat(monocytes_pbmc, paste0(project_path, "data/h5seurat/PBMC/monocytes_pbmc"))
+#
+# # Add LIBRARY to macrophages_skin. Same as sample ID
+# macrophages_skin$LIBRARY <- macrophages_skin$sample_id
+# macrophages_skin <- macrophages_skin %>%
+#   sub_cluster(res = 0.4,
+#               assays = "RNA")
+# # Save this UMAP/clustering
+# SaveH5Seurat(macrophages_skin, paste0(project_path, "data/h5seurat/skin/macrophages_skin"))
+
+# Load in sub-clustered Seurat object
+monocytes_pbmc <- LoadH5Seurat(paste0(project_path, "data/h5seurat/PBMC/monocytes_pbmc.h5seurat"))
+macrophages_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/macrophages_skin.h5seurat"))
+
+# Set default assay to RNA
+DefaultAssay(monocytes_pbmc) <- "RNA"
+
+# Genes of interest in blood
+top_blood <- c("PDE4A", "EMP1", "SERPINE1", "RGCC", "CDKN1A", "CCL2", "IFITM1", "IFITM3", "FOSL1", "ATF3")
+# Genes of interest in skin
+top_skin <- c("TYROBP", "GIMAP5", "TNFSF13", "SIGLEC1", "TLR4", "TLR7", "CD68", "IL1A")
+# Genes of interest in both tissues
+top_both <- c("MED30", "OASL", "CITED2")
+
+# Generate feature plots
+blood_FP_group <- lapply(c(top_blood, top_both),
+                   function(gene){FeaturePlot(monocytes_pbmc, 
+                                              gene, 
+                                              label = T, 
+                                              order = T,
+                                              reduction = "wnn.umap",
+                                              split.by = "group")})
+skin_FP_group <- lapply(c(top_skin, top_both),
+                  function(gene){FeaturePlot(macrophages_skin, 
+                                             gene, 
+                                             label = T, 
+                                             order = T,
+                                             reduction = "umap",
+                                             split.by = "group")})
+# Name plots accordingly
+names(blood_FP_group) <- c(top_blood, top_both)
+names(skin_FP_group) <- c(top_skin, top_both)
+
+# Dot plots by group
+# Custom function
+my_DP <- function(obj, gene){
+  # Get group levels
+  group_levels <- levels(obj$group)
+  # Number of groups
+  n_groups <- length(group_levels)
+  # Seurat dotplot split by group.
+  # We want to preserve the scaling from this plot, but 
+  # rearrange the axes to make it easier to read.
+  p <- DotPlot(obj, features = gene, split.by = "group",
+               cols = rep("black", n_groups))
+  # Extract data from p
+  d <- p$data %>%
+    tidyr::extract(id, into = c("cluster", "group"), regex = "^(.*)_(.*)$") %>%
+    mutate(
+      cluster = factor(cluster),
+      group   = factor(group, levels = group_levels)
+    )
+  # Keep DotPlot's dot-size scaling exactly
+  size_scale <- p$scales$get_scales("size")
+  # Use the same VALUE that DotPlot colors by (avg.exp.scaled),
+  # but with a dark-high, light-low palette
+  lims <- range(d$avg.exp.scaled, na.rm = TRUE)
+  # Final plot
+  ggplot(d, aes(x = group, y = cluster)) +
+    geom_point(aes(size = pct.exp, color = avg.exp.scaled)) +
+    size_scale +
+    scale_color_gradient(
+      low = "grey90",   # low expression (light)
+      high = "black",   # high expression (dark)
+      limits = lims,
+      name = "Avg expr (scaled)"
+    ) +
+    labs(x = "Group", y = "Cluster", title = paste0(unique(obj$Tissue), ": ", gene)) +
+    theme_classic()
+}
+
+blood_DP_group <- lapply(c(top_blood, top_both), function(gene){my_DP(monocytes_pbmc, gene)})
+skin_DP_group <- lapply(c(top_skin, top_both), function(gene){my_DP(macrophages_skin, gene)})
+
+# Name plots accordingly
+names(blood_DP_group) <- c(top_blood, top_both)
+names(skin_DP_group) <- c(top_skin, top_both)
+
+# Generate simple dot plots (Exclude HC)
+Idents(monocytes_pbmc) <- Idents(macrophages_skin) <- "health"  # so idents="SSc" works as a filter
+blood_DP <- lapply(c(top_blood, top_both), function(gene){
+    DotPlot(monocytes_pbmc, features = gene, idents = "SSc", group.by = "seurat_clusters")
+})
+skin_DP <- lapply(c(top_skin, top_both), function(gene){
+    DotPlot(macrophages_skin, features = gene, idents = "SSc", group.by = "seurat_clusters")
+})
+# Name plots accordingly
+names(blood_DP) <- c(top_blood, top_both)
+names(skin_DP) <- c(top_skin, top_both)
+```
+
+Let's look at them one by one.
+
+```{r}
+################################################################################
+# MONOCYTES
+################################################################################
+
+# PDE4A
+blood_FP$PDE4A
+blood_DP$PDE4A
+blood_DP_group$PDE4A
+
+# EMP1 - much higher expression in cluster 7
+blood_FP$EMP1
+blood_DP$EMP1
+blood_DP_group$EMP1
+
+# SERPINE1 - much higher expression in cluster 7
+blood_FP$SERPINE1
+blood_DP$SERPINE1
+blood_DP_group$SERPINE1
+
+# RGCC - much higher expression in cluster 7
+blood_FP$RGCC
+blood_DP$RGCC
+blood_DP_group$RGCC
+
+# CDKN1A - also highest in cluster 7
+blood_FP$CDKN1A
+blood_DP$CDKN1A
+blood_DP_group$CDKN1A
+
+# CCL2 - 7!
+blood_FP$CCL2
+blood_DP$CCL2
+blood_DP_group$CCL2
+
+# IFITM1 - clusters 3, 5, and 6. Strong division on feature plot.
+blood_FP$IFITM1
+blood_DP$IFITM1
+blood_DP_group$IFITM1
+
+# IFITM3 
+blood_FP$IFITM3
+blood_DP$IFITM3
+blood_DP_group$IFITM3
+
+# FOSL1 - 7
+blood_FP$FOSL1
+blood_DP$FOSL1
+blood_DP_group$FOSL1
+
+# ATF3 - 7
+blood_FP$ATF3
+blood_DP$ATF3
+blood_DP_group$ATF3
+
+################################################################################
+# MACROPHAGES
+################################################################################
+
+# TYROBP
+skin_FP$TYROBP
+skin_DP$TYROBP
+skin_DP_group$TYROBP
+
+# GIMAP5 - upregulated in cluster 6, patients at baseline
+skin_FP$GIMAP5
+skin_DP$GIMAP5
+skin_DP_group$GIMAP5
+
+# TNFSF13
+skin_FP$TNFSF13
+skin_DP$TNFSF13
+skin_DP_group$TNFSF13
+
+# SIGLEC1 - cluster 6
+skin_FP$SIGLEC1
+skin_DP$SIGLEC1
+skin_DP_group$SIGLEC1
+
+# TLR4 - cluster 6
+skin_FP$TLR4
+skin_DP$TLR4
+skin_DP_group$TLR4
+
+# TLR7 - cluster 6
+skin_FP$TLR7
+skin_DP$TLR7
+skin_DP_group$TLR7
+
+# CD68 - 6
+skin_FP$CD68
+skin_DP$CD68
+skin_DP_group$CD68
+
+# IL1A
+skin_FP$IL1A
+skin_DP$IL1A
+skin_DP_group$IL1A
+
+################################################################################
+# BOTH
+################################################################################
+
+# MED30
+blood_FP$MED30
+blood_DP$MED30
+blood_DP_group$MED30
+skin_FP$MED30
+skin_DP$MED30
+skin_DP_group$MED30
+
+# OASL - 4 in blood, 9 in skin
+blood_FP$OASL
+blood_DP$OASL
+blood_DP_group$OASL
+skin_FP$OASL
+skin_DP$OASL
+skin_DP_group$OASL
+
+# CITED2
+blood_FP$CITED2
+blood_DP$CITED2
+blood_DP_group$CITED2
+skin_FP$CITED2
+skin_DP$CITED2
+skin_DP_group$CITED2
+```
+
+I want to take a closer look at cluster 7 in monocytes and cluster 6 in skin.
+
+```{r}
+monocyte_rna_markers <- FindAllMarkers(monocytes_pbmc, assay = "RNA", only.pos = T, group.by = "seurat_clusters")
+monocyte_adt_markers <- FindAllMarkers(monocytes_pbmc, assay = "DSB", only.pos = T, group.by = "seurat_clusters")
+macrophage_rna_markers <- FindAllMarkers(macrophages_skin, only.pos = T, group.by = "seurat_clusters")
+
+# We look at cluster 7 in blood
+display_top(monocyte_rna_markers, 7, 200)
+display_top(monocyte_adt_markers, 7)
+
+# And cluster 6 in skin
+display_top(macrophage_rna_markers, 6)
+```
+
+Let's see which of our DEGs of interest are DEGs for a specific cluster in monocytes.
+
+Cluster 0 (CD14): RGCC, ATF3, FOSL1, IL1A, CITED2, TLR4, SERPINE1
+Cluster 1 (CD14): TYROBP
+Cluster 2 (CD14): ATF3, EMP1, CITED2, PDE4A, SERPINE1, IL1A, FOSL1
+Cluster 3 (CD16): IFITM1, IFITM3, CD68, CDKN1A, PDE4A, OASL, ATF3
+Cluster 4 (CD14): OASL, CCL2, IFITM3, IFITM1, TYROBP, GIMAP5, TNFSF13, TLF
+Cluster 5 (biphenotypic B): IFITM1, IFITM3, MED30, TLR7
+Cluster 6 (biphenotypic T): IFITM1, GIMAP5, IFITM3, MED30, OASL
+Cluster 7 (CD14): RGCC, CCL2, EMP1, CKN1A, FOSL1, SERPINE1, ATF3, OASL, PDE4A
+Cluster 8 (CD14): none
+
+```{r}
+monocyte_rna_markers %>% filter(gene %in% c(top_blood, top_both, top_skin))
+
+Idents(monocytes_pbmc) <- "seurat_clusters"
+
+# Clusters 0, 1, 2, 4, 7, and 8 are CD14
+# Cluster 3 is CD16
+# Clusters 5 and 6 appear to contain a mixture.
+# Looking closer, they appear to be biphenotypic.
+display_top(monocyte_rna_markers, 5) # CD79A, MS4A1, 
+display_top(monocyte_rna_markers, 6) # CD3E, CD7, CD3D
+
+FeaturePlot(monocytes_pbmc, "CD14", reduction = "wnn.umap", label = T)
+FeaturePlot(monocytes_pbmc, "FCGR3A", reduction = "wnn.umap", label = T)
+
+```
+
+What if we do differential expression by monocyte subtype?
+
+```{r}
+monocytes_pbmc@meta.data <-
+  monocytes_pbmc@meta.data %>% mutate(
+    subtype = case_when(
+      seurat_clusters %in% c(0, 1, 2, 4, 7, 8) ~ "CD14+",
+      seurat_clusters == 3 ~ "CD16+",
+      seurat_clusters == 5 ~ "biphenotypic B",
+      seurat_clusters == 6 ~ "biphenotypic T"
+    )
+  )
+
+mon_rna_subtype <- FindAllMarkers(monocytes_pbmc, assay = "RNA", only.pos = T, group.by = "subtype")
+
+mon_rna_subtype %>% display_top("CD14+", 200)
+mon_rna_subtype %>% display_top("CD16+", 200)
+mon_rna_subtype %>% display_top("biphenotypic B", 200)
+mon_rna_subtype %>% display_top("biphenotypic T", 200)
+
+```
+
+Let's look at CD14+ monocytes alone, and compare groups (healthy vs. patient timepoints)
+
+```{r}
+cd14 <- subset(monocytes_pbmc, subtype == "CD14+")
+cd14_SSc <- FindAllMarkers(cd14, assay = "RNA", only.pos = T, group.by = "group")
+display_top(cd14_SSc, "baseline", 200)
+```
+
+What if we try clustering patient cells and healthy cells separately?
+
+```{r}
+# monocytes_healthy <- subset(monocytes_pbmc, health == "healthy")
+# monocytes_SSc <- subset(monocytes_pbmc, health == "SSc")
+
+# monocytes_healthy <- monocytes_healthy %>% sub_cluster(res = 0.5)
+healthy_cd14 <- FeaturePlot(monocytes_healthy, "CD14", label = T, order = T, reduction = "wnn.umap")
+healthy_cd16 <- FeaturePlot(monocytes_healthy, "FCGR3A", label = T, order = T, reduction = "wnn.umap")
+
+# monocytes_SSc <- monocytes_SSc %>% sub_cluster(res = 0.5)
+SSc_cd14 <- FeaturePlot(monocytes_SSc, "CD14", label = T, order = T, reduction = "wnn.umap")
+SSc_cd16 <- FeaturePlot(monocytes_SSc, "FCGR3A", label = T, order = T, reduction = "wnn.umap")
+SSc_MS4A1 <- FeaturePlot(monocytes_SSc, "MS4A1", label = T, order = T, reduction = "wnn.umap")
+SSc_CD3E <- FeaturePlot(monocytes_SSc, "CD3E", label = T, order = T, reduction = "wnn.umap")
+
+# Save
+mapply(function(plot_name) {
+         ggsave(paste0(project_path, "../to_share/monocyte_plots_feb_13/", deparse(substitute(plot_name)), ".png" ),
+                   plot_name,
+                   width = 6, height = 3)
+       }, list(healthy_cd14, healthy_cd16, SSc_cd14, SSc_cd16, SSc_MS4A1, SSc_CD3E)
+)
+
+```
+
+Now, let's make feature plots, again this time on the SSc monocytes only.
+
+```{r}
+# Generate feature plots
+blood_FP_SSc <- lapply(c(top_blood, top_both),
+                   function(gene){FeaturePlot(monocytes_SSc, 
+                                              gene, 
+                                              label = T, 
+                                              order = T,
+                                              reduction = "wnn.umap")})
+# Name plots accordingly
+names(blood_FP_SSc) <- c(top_blood, top_both)
+
+# Generate dot plots
+blood_DP_SSc <- lapply(c(top_blood, top_both),
+                   function(gene){DotPlot(monocytes_SSc, 
+                                              gene)})
+# Name plots accordingly
+names(blood_DP_SSc) <- c(top_blood, top_both)
+```
+
+Look at DEGs of interest one by one. 
+
+```{r}
+################################################################################
+# MONOCYTES
+################################################################################
+
+# PDE4A, higher in 8, but feature plot looks fairly uniform
+blood_FP_SSc$PDE4A
+blood_DP_SSc$PDE4A
+
+# EMP1 - higher in 8
+blood_FP_SSc$EMP1
+blood_DP_SSc$EMP1
+
+# SERPINE1 - higher in 8
+blood_FP_SSc$SERPINE1
+blood_DP_SSc$SERPINE1
+
+# RGCC - higher in 8
+blood_FP_SSc$RGCC
+blood_DP_SSc$RGCC
+
+# CDKN1A - higher in 8
+blood_FP_SSc$CDKN1A
+blood_DP_SSc$CDKN1A
+
+# CCL2 - higher in 8
+blood_FP_SSc$CCL2
+blood_DP_SSc$CCL2
+
+# IFITM1 - 4, 5, 6, and 7
+blood_FP_SSc$IFITM1
+blood_DP_SSc$IFITM1
+
+# IFITM3 - 4, 5, 6, 7, 8
+blood_FP_SSc$IFITM3
+blood_DP_SSc$IFITM3
+
+# FOSL1 - 8
+blood_FP_SSc$FOSL1
+blood_DP_SSc$FOSL1
+
+# ATF3 - 8
+blood_FP_SSc$ATF3
+blood_DP_SSc$ATF3
+
+# MED30 - 5, 7
+blood_FP_SSc$MED30
+blood_DP_SSc$MED30
+
+# OASL - 6
+blood_FP_SSc$OASL
+blood_DP_SSc$OASL
+
+# CITED2 - 1, 6
+blood_FP_SSc$CITED2
+blood_DP_SSc$CITED2
+
+cluster_8_dot_plots <- list(blood_DP_SSc$PDE4A,
+                       blood_DP_SSc$EMP1,
+                       blood_DP_SSc$SERPINE1,
+                       blood_DP_SSc$RGCC,
+                       blood_DP_SSc$CDKN1A,
+                       blood_DP_SSc$CCL2,
+                       blood_DP_SSc$FOSL1,
+                       blood_DP_SSc$ATF3)
+names(cluster_8_dot_plots) <- c("PDE4A", "EMP1", "SERPINE1", "RGCC", "CDKN1A", "CCL2", "FOSL1", "ATF3")
+
+# Save
+out_dir <- file.path(project_path, "../to_share/monocyte_plots_feb_13/dots")
+mapply(
+  FUN = function(p, nm) {
+    ggsave(
+      filename = file.path(out_dir, paste0(nm, ".png")),
+      plot = p,
+      width = 6, height = 3
+    )
+  },
+  p  = cluster_8_dot_plots,
+  nm = names(cluster_8_dot_plots),
+  SIMPLIFY = FALSE
+)
+
+```
+
+```{r}
+SSc_monocyte_rna_markers <- FindAllMarkers(monocytes_SSc, assay = "RNA", group.by = "seurat_clusters", only.pos = T)
+
+
+```
 
