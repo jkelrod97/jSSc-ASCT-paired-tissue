@@ -37,52 +37,57 @@ invisible(lapply(function_files, source))
 Now, we load in the most recent Seurat objects for PBMCs and skin, subset out monocytes and macrophages (the focus of our manuscript), and store the data in a single Seurat object. We can only include genes expressed in both tissues, leaving us with 17,836 genes.
 
 ```{r}
-# Load in PBMC Seurat object
-scler_pbmc <- LoadH5Seurat(paste0(project_path, "data/h5seurat/PBMC/scler_pbmc_10.h5seurat"))
-
-# Load in skin Seurat object
-scler_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/scler_skin_9.h5seurat"))
-
-# Subset out desired cell types
-# Monocytes (PBMC)
-monocytes_pbmc <-subset(scler_pbmc, cell_type %in% c("CD14+ monocyte", "CD16+ monocyte"))
-# Macrophages (skin)
-macrophages_skin <- subset(scler_skin, cell_type == "macrophage")
-
-# Subset to only include genes expressed in both 
-# Set default assay of monocytes_pbmc to RNA
-DefaultAssay(monocytes_pbmc) <- "RNA"
-# Extract genes in both
-genes_in_both <- intersect(rownames(monocytes_pbmc), rownames(macrophages_skin))
-# We have 17835 genes that met our filtering standards in both tissues (better than the 13,467 we had before we re-aligned the skin samples!)
-genes_in_both %>% length()
-# Subset to only include these genes
-monocytes_pbmc <- subset(monocytes_pbmc, features = c(genes_in_both, rownames(monocytes_pbmc[["ADT"]])))
-macrophages_skin <- macrophages_skin[genes_in_both, ]
-# Get dimensions
-# Monocytes (PBMC): 17,836 genes, 13,899 cells
-# Macrophages (skin): 17,836 genes, 927 cells
-monocytes_pbmc
-macrophages_skin
-
-# Add tissue labels
-monocytes_pbmc$Tissue <- "PBMC"
-macrophages_skin$Tissue <- "skin"
-
-# Merge
-macro_mono_combined <- merge(
-  x = monocytes_pbmc,
-  y = macrophages_skin,
-  add.cell.ids = c("PBMC", "Skin")
-)
-
-# Let's create a new "sample_id_variable" that distinguishes between tissues for each sample
-macro_mono_combined$sample_id_Tissue <- paste0(macro_mono_combined$sample_id, "_", macro_mono_combined$Tissue)
-
-# Let's also set proper levels for group variable
-macro_mono_combined$group <- factor(macro_mono_combined$group, levels = c("healthy", "baseline", "six", "twelve", "twen4"))
-
+# # Load in PBMC Seurat object
+# scler_pbmc <- LoadH5Seurat(paste0(project_path, "data/h5seurat/PBMC/scler_pbmc_10.h5seurat"))
+# 
+# # Load in skin Seurat object
+# scler_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/scler_skin_9.h5seurat"))
+# 
+# # Subset out desired cell types
+# # Monocytes (PBMC)
+# monocytes_pbmc <-subset(scler_pbmc, cell_type %in% c("CD14+ monocyte", "CD16+ monocyte"))
+# # Macrophages (skin)
+# macrophages_skin <- subset(scler_skin, cell_type == "macrophage")
+# 
+# # Subset to only include genes expressed in both
+# # Set default assay of monocytes_pbmc to RNA
+# DefaultAssay(monocytes_pbmc) <- "RNA"
+# # Extract genes in both
+# genes_in_both <- intersect(rownames(monocytes_pbmc), rownames(macrophages_skin))
+# # We have 17835 genes that met our filtering standards in both tissues (better than the 13,467 we had before we re-aligned the skin samples!)
+# genes_in_both %>% length()
+# # Subset to only include these genes
+# monocytes_pbmc <- subset(monocytes_pbmc, features = c(genes_in_both, rownames(monocytes_pbmc[["ADT"]])))
+# macrophages_skin <- macrophages_skin[genes_in_both, ]
+# # Get dimensions
+# # Monocytes (PBMC): 17,836 genes, 13,899 cells
+# # Macrophages (skin): 17,836 genes, 927 cells
+# monocytes_pbmc
+# macrophages_skin
+# 
+# # Add tissue labels
+# monocytes_pbmc$Tissue <- "PBMC"
+# macrophages_skin$Tissue <- "skin"
+# 
+# # Merge
+# macro_mono_combined <- merge(
+#   x = monocytes_pbmc,
+#   y = macrophages_skin,
+#   add.cell.ids = c("PBMC", "Skin")
+# )
+# 
+# # Let's create a new "sample_id_variable" that distinguishes between tissues for each sample
+# macro_mono_combined$sample_id_Tissue <- paste0(macro_mono_combined$sample_id, "_", macro_mono_combined$Tissue)
+# 
+# # Let's also set proper levels for group variable
+# macro_mono_combined$group <- factor(macro_mono_combined$group, levels = c("healthy", "baseline", "six", "twelve", "twen4"))
+# 
+# # Remove non-RNA assays
+# macro_mono_combined[["DSB"]] <- macro_mono_combined[["DSB_integrated"]] <- macro_mono_combined[["ADT"]] <- NULL
+# 
 # # Save as H5
+# SaveH5Seurat(monocytes_pbmc, paste0(project_path, "data/h5seurat/PBMC/monocytes_pbmc"))
+# SaveH5Seurat(macrophages_skin, paste0(project_path, "data/h5seurat/skin/macrophages_skin"))
 # SaveH5Seurat(macro_mono_combined, paste0(project_path, "data/h5seurat/combined/macro_mono_combined"))
 ```
 
@@ -203,24 +208,23 @@ goi_df
 
 Now we conduct pathway enrichment analysis based off of this tutorial:  https://biostatsquid.com/pathway-enrichment-analysis-tutorial-clusterprofiler/
 
-Setup for Reactome pathway enrichment is below:
+Setup for GSEA is below:
 
 ```{r}
 # Load packages
 packages_2 <- c("tidyverse", "RColorBrewer", "pheatmap", "clusterProfiler", "enrichplot", "msigdbr")
 invisible(lapply(packages_2, require, character.only = TRUE))
 
-# Get Reactome pathways
-reactome_sets <- msigdbr(species = "human", 
-                         collection = "C2", 
-                         subcollection = "CP:REACTOME")
+# Get hallmark pathways
+hallmark_sets <- msigdbr(species = "human", 
+                         collection = "H")
 
 # TERM2GENE
-term2gene <- reactome_sets %>%
+term2gene <- hallmark_sets %>%
   select(gs_name, gene_symbol)
 
 # TERM2NAME (readable descriptions)
-term2name <- reactome_sets %>%
+term2name <- hallmark_sets %>%
   distinct(gs_name, gs_description)
 
 # Background genes
@@ -310,6 +314,13 @@ pbmc_up_pathways <- res_pbmc$UP@result %>% filter(pvalue < 0.1) %>% rownames()
 skin_up_pathways <- res_skin$UP@result %>% filter(pvalue < 0.1) %>% rownames()
 # Take intersection
 both_up_pathways <- intersect(pbmc_up_pathways, skin_up_pathways)
+
+# Save GSEA results as CSVs
+write_csv(res_pbmc$DOWN@result, paste0(project_path, "../to_share/gsea_csvs/pbmc_down_pathways.csv"))
+write_csv(res_pbmc$UP@result, paste0(project_path, "../to_share/gsea_csvs/pbmc_up_pathways.csv"))
+write_csv(res_skin$DOWN@result, paste0(project_path, "../to_share/gsea_csvs/skin_down_pathways.csv"))
+write_csv(res_skin$UP@result, paste0(project_path, "../to_share/gsea_csvs/skin_up_pathways.csv"))
+
 ```
 
 Export pathway DFs
@@ -447,22 +458,25 @@ We want to see if our DEGs of interest are expressed in clusters of monocytes/ma
 To investigate this, we will sub-cluster monocytes and macrophages. 
 
 ```{r}
+# monocytes_pbmc <- LoadH5Seurat(paste0(project_path, "data/h5seurat/PBMC/monocytes_pbmc.h5seurat"))
+# macrophages_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/macrophages_skin.h5seurat"))
+# 
 # monocytes_pbmc <- monocytes_pbmc %>%
 #   sub_cluster(res = 0.4)
 # # Save this UMAP/clustering
-# SaveH5Seurat(monocytes_pbmc, paste0(project_path, "data/h5seurat/PBMC/monocytes_pbmc"))
-#
+# SaveH5Seurat(monocytes_pbmc, paste0(project_path, "data/h5seurat/PBMC/monocytes_pbmc_2"))
+# 
 # # Add LIBRARY to macrophages_skin. Same as sample ID
 # macrophages_skin$LIBRARY <- macrophages_skin$sample_id
 # macrophages_skin <- macrophages_skin %>%
 #   sub_cluster(res = 0.4,
 #               assays = "RNA")
 # # Save this UMAP/clustering
-# SaveH5Seurat(macrophages_skin, paste0(project_path, "data/h5seurat/skin/macrophages_skin"))
+# SaveH5Seurat(macrophages_skin, paste0(project_path, "data/h5seurat/skin/macrophages_skin_2"))
 
 # Load in sub-clustered Seurat object
-monocytes_pbmc <- LoadH5Seurat(paste0(project_path, "data/h5seurat/PBMC/monocytes_pbmc.h5seurat"))
-macrophages_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/macrophages_skin.h5seurat"))
+monocytes_pbmc <- LoadH5Seurat(paste0(project_path, "data/h5seurat/PBMC/monocytes_pbmc_2.h5seurat"))
+macrophages_skin <- LoadH5Seurat(paste0(project_path, "data/h5seurat/skin/macrophages_skin_2.h5seurat"))
 
 # Set default assay to RNA
 DefaultAssay(monocytes_pbmc) <- "RNA"
@@ -779,6 +793,18 @@ mapply(function(plot_name) {
        }, list(healthy_cd14, healthy_cd16, SSc_cd14, SSc_cd16, SSc_MS4A1, SSc_CD3E)
 )
 
+# Now skin
+
+macrophages_healthy <- subset(macrophages_skin, health == "healthy")
+macrophages_SSc <- subset(macrophages_skin, health == "SSc")
+
+macrophages_healthy <- macrophages_healthy %>% sub_cluster(res = 0.5, assays = "RNA")
+healthy_cd14_mac <- FeaturePlot(macrophages_healthy, "CD14", label = T, order = T, reduction = "umap")
+healthy_cd16_mac <- FeaturePlot(macrophages_healthy, "FCGR3A", label = T, order = T, reduction = "umap")
+
+macrophages_SSc <- macrophages_SSc %>% sub_cluster(res = 0.5, assays = "RNA")
+SSc_cd14_mac <- FeaturePlot(macrophages_SSc, "CD14", label = T, order = T, reduction = "umap")
+SSc_cd16_mac <- FeaturePlot(macrophages_SSc, "FCGR3A", label = T, order = T, reduction = "umap")
 ```
 
 Now, let's make feature plots, again this time on the SSc monocytes only.
@@ -891,6 +917,7 @@ mapply(
 ```{r}
 SSc_monocyte_rna_markers <- FindAllMarkers(monocytes_SSc, assay = "RNA", group.by = "seurat_clusters", only.pos = T)
 
+SSc_macrophage_rna_markers <- FindAllMarkers(macrophages_SSc, assay = "RNA", group.by = "seurat_clusters", only.pos = T)
 
 ```
 
