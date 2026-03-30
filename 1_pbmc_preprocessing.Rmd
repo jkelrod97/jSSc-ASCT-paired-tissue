@@ -88,10 +88,10 @@ patient_meta_data$Major.manifestations <- NULL
 ################################################################################
 #
 # # Get paths to cellranger multi output
-# cellranger_paths <- list.files(paste0(project_path, "data/cellranger_output/cellranger_multi"), full.names = TRUE)
+# cellranger_paths <- list.files(paste0(project_path, "data/cellranger_output/cellranger_multi_demultiplexed"), full.names = TRUE)
 # 
 # # Get sample names
-# samp_names <- list.files(paste0(project_path, "data/cellranger_output/cellranger_multi"))
+# samp_names <- list.files(paste0(project_path, "data/cellranger_output/cellranger_multi_demultiplexed"))
 # 
 # # Read 10x output
 # cellranger_output <- lapply(cellranger_paths, Read10X)
@@ -335,7 +335,7 @@ SaveH5Seurat(scler_pbmc,
 ```
 
 
-2) Ambient RNA removal with SoupX. Since this step addresses technical noise, we run it separately for each library (subject), so we need output from cellranger multi without demultiplexing (which was run separately for this purpose). 
+2) Ambient RNA removal with SoupX. Since this step addresses technical noise, we run it separately for each library (subject), so we need output from cellranger multi without demultiplexing (which was run separately for this purpose in 0_C_alignment_without_demultiplexing.sh). 
 
 ```{r}
 # Path where pooled cellranger multi outputs are saved
@@ -554,7 +554,7 @@ sink
 
 We will filter genes that are lowly expressed as well. Before filtering, we have 38,606 genes.
 
-We only consider expression in patients, as we do not include healthy controls in our model.
+We only consider expression in patients, as we do not include healthy controls in our longitudinal model.
 
 ```{r}
 # Load Seurat object
@@ -645,13 +645,13 @@ filtered_wells <- lapply(subjects, function(subject){Read10X(paste0(path_to_cell
 names(raw_wells) <- names(filtered_wells) <- subjects
 
 # Look at distribution of droplets for each well
-dsb_plots <- mapply(plot_dsb, raw_well, filtered_well,
+dsb_plots <- mapply(plot_dsb, raw_wells, filtered_wells,
        SIMPLIFY = F)
 # Name accordingly
 names(dsb_plots) <- subjects
 
 # Get data classifying cells as background/cell
-dsb_data <- mapply(dsb_md, raw_well, filtered_well,
+dsb_data <- mapply(dsb_md, raw_wells, filtered_wells,
                    SIMPLIFY = F)
 # Name accordingly
 names(dsb_data) <- subjects
@@ -702,7 +702,7 @@ seurat_subsets <- lapply(libraries, function(lib){subset(scler_pbmc, LIBRARY == 
 
 # Run DSB for each well/library
 adt_adj <- mapply(run_dsb,
-                  raw_well, filtered_well, seurat_subsets, libraries,
+                  raw_wells, filtered_wells, seurat_subsets, libraries,
                   prot.size.min = prot.lower,
                   prot.size.max = prot.higher,
                   rna.size.min = rna.lower,

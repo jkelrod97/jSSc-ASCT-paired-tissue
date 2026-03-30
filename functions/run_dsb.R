@@ -46,9 +46,9 @@ run_dsb <- function(raw_counts = NULL,
   
   # Rename cells in cell ranger output to match Seurat object
   # Also make sure genes & antibodies match those in Seurat object
-  raw_counts <- mapply(match_seurat, raw_counts, list("RNA", "ADT"))
+  raw_counts <- mapply(match_seurat, raw_counts, list("RNA", "ADT"), MoreArgs = c(seurat_obj = seurat_obj))
   # Apply to filtered counts
-  filtered_counts <- mapply(match_seurat, filtered_counts, c("RNA", "ADT"))
+  filtered_counts <- mapply(match_seurat, filtered_counts, c("RNA", "ADT"), MoreArgs = c(seurat_obj = seurat_obj))
   
   # Split the data into separate matrices for RNA and ADT
   prot <- raw_counts$`Antibody Capture`
