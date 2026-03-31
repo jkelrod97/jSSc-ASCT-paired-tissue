@@ -285,6 +285,7 @@ monocytes_prop_by_group <- ggplot(monocytes@meta.data, aes(y = group_spaced, fil
         plot.title = element_text(size = 18, face = "bold"),
         legend.text = element_text(size = 14)
     )
+# Save as PNG
 ggsave(paste0(project_path, "figures/3_monocyte_subtype_annotation/monocytes_prop_by_group.png"), monocytes_prop_by_group, height = 7, width = 8)
 ```
 

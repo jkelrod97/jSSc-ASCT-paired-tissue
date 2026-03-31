@@ -3,7 +3,7 @@ title: "4: jSSc ASCT monocytes longitudinal analysis"
 output: html_notebook
 ---
 
-In this notebook, we run our longitudinal monocyte pseudobulk offset analysis. We use a single model which includes an indicator term for tissue. 
+In this notebook, we run our longitudinal monocyte pseudobulk offset analysis. Adapted from Lee and Han (2024).
 
 We begin by loading in useful packages and custom functions.
 
@@ -28,7 +28,8 @@ Now load in useful packages and custom functions.
 # Load packages
 packages <- c("Seurat", "dplyr", "tidyr", "SeuratDisk", "harmony", "readr",
               "ggplot2", "stringr", "SoupX", "dsb", "data.table", "Matrix",
-              "scDblFinder", "scater", "ggrepel")
+              "scDblFinder", "scater", "ggrepel","tidyverse", "RColorBrewer", "pheatmap",
+              "clusterProfiler", "enrichplot", "msigdbr")
 invisible(lapply(packages, require, character.only = TRUE))
 
 # Source functions
@@ -36,185 +37,14 @@ function_files <- list.files(paste0(project_path, "functions"), pattern = "\\.R$
 invisible(lapply(function_files, source))
 ```
 
-Now, we load in the most recent Seurat objects for PBMCs and skin, subset out monocytes, and store the data in a single Seurat object. 
+We run the model on all the patient monocytes. 
 
 ```{r}
-# # Load in PBMC Seurat object
-# scler_pbmc <- LoadH5Seurat(paste0(project_path, "data/h5seurat/scler_pbmc_10.h5seurat"))
-# 
-# # Subset out  monocytes, separately for SSc and healthy.
-# healthy_monocytes <- subset(scler_pbmc, cell_type == "monocyte" & health == "healthy")
-# SSc_monocytes <- subset(scler_pbmc, cell_type == "monocyte" & health == "SSc")
-# 
-# # Sub-cluster separately for SSc and healthy
-# healthy_monocytes <- healthy_monocytes %>% sub_cluster(res = 0.1, dim = c(5, 5))
-# SSc_monocytes <- SSc_monocytes %>% sub_cluster(res = 1)
-# 
-# # Save as H5
-# SaveH5Seurat(healthy_monocytes, paste0(project_path, "data/h5seurat/healthy_monocytes"))
-# SaveH5Seurat(SSc_monocytes, paste0(project_path, "data/h5seurat/SSc_monocytes"))
-# 
-# # Load in healthy monocytes
-# healthy_monocytes <- LoadH5Seurat(paste0(project_path, "data/h5seurat/healthy_monocytes.h5seurat"))
-# SSc_monocytes <- LoadH5Seurat(paste0(project_path, "data/h5seurat/SSc_monocytes.h5seurat"))
-#
-# # List of assays
-# ASSAYS <- c("RNA", "ADT")
-# 
-# # Get markers for healthy controls
-# healthy_markers <- ASSAYS %>% lapply(function(x){FindAllMarkers(healthy_monocytes, assay = x, only.pos = T)}) %>% setNames(ASSAYS)
-# 
-# # Annotate healthy monocytes
-# healthy_markers %>% lapply(function(x){lapply(unique(x$cluster),
-#                                               function(clus){x %>% filter(cluster == clus) %>% head(20) %>% pull(gene)}) %>% setNames(paste0("Cluster_", unique(x$cluster)))})
-# 
-# # Cluster 0 is CD14+, cluster 1 is CD16+
-# healthy_monocytes@meta.data <- healthy_monocytes@meta.data %>%
-#   mutate(
-#     cell_type = case_when(
-#       seurat_clusters == 0 ~ "CD14+",
-#       seurat_clusters == 1 ~ "CD16+"
-#     )
-#   )
-# 
-# # Save healthy annotations
-# SaveH5Seurat(healthy_monocytes, paste0(project_path, "data/h5seurat/healthy_monocytes_2"))
-# 
-# # Load in annotated healthy monoytes
-# healthy_monocytes <- LoadH5Seurat(paste0(project_path, "data/h5seurat/healthy_monocytes_2.h5seurat"))
-# 
-# # Take a look
-# DimPlot(healthy_monocytes, reduction = "wnn.umap", label = T, group.by = "cell_type", label.size = 5, label.box = T) + ggtitle("Healthy monocytes")
-# 
-# Load in SSc monocytes
-SSc_monocytes <- LoadH5Seurat(paste0(project_path, "data/h5seurat/SSc_monocytes.h5seurat"))
-#
-# # Now, let's sub-cluster separately for each patient
-#
-# # Subset for each patient
-# monocytes_515 <- subset(SSc_monocytes, subject == "515")
-# monocytes_591 <- subset(SSc_monocytes, subject == "591")
-# monocytes_594 <- subset(SSc_monocytes, subject == "594")
-# 
-# # Sub-cluster each patient
-# monocytes_515 <- monocytes_515 %>% sub_cluster(res = 1)
-# monocytes_591 <- monocytes_591 %>% sub_cluster(res = 1)
-# monocytes_594 <- monocytes_594 %>% sub_cluster(res = 1)
-# 
-# # Save as H5
-# SaveH5Seurat(monocytes_515, paste0(project_path, "data/h5seurat/monocytes_515"))
-# SaveH5Seurat(monocytes_591, paste0(project_path, "data/h5seurat/monocytes_591"))
-# SaveH5Seurat(monocytes_594, paste0(project_path, "data/h5seurat/monocytes_594"))
-# 
-# # Load in H5s for each individual patient
-# monocytes_515 <- LoadH5Seurat(paste0(project_path, "data/h5seurat/monocytes_515.h5seurat"))
-# monocytes_591 <- LoadH5Seurat(paste0(project_path, "data/h5seurat/monocytes_591.h5seurat"))
-# monocytes_594 <- LoadH5Seurat(paste0(project_path, "data/h5seurat/monocytes_594.h5seurat"))
-# 
-# # patient 515--CD14, CD16, and B-like
-# DimPlot(monocytes_515, reduction = "wnn.umap", label = T) + ggtitle("Patient 515 monocytes")
-# DotPlot(monocytes_515, c("CD14", "FCGR3A", "MS4A1"))
-# monocytes_515@meta.data <- monocytes_515@meta.data %>% mutate(
-#   cell_type = case_when(
-#     seurat_clusters %in% c(0, 1, 2, 4, 5, 6, 7) ~ "CD14+",
-#     seurat_clusters == 3 ~ "CD16+",
-#     seurat_clusters == 8 ~ "B-like"
-#   )
-# )
-# 
-# # patient 591 - CD14, CD16, B-like, T-like, NK-like
-# DimPlot(monocytes_591, reduction = "wnn.umap", label = T) + ggtitle("Patient 591 monocytes")
-# DotPlot(monocytes_591, c("CD14", "FCGR3A", "MS4A1", "CD3D", "NKG7")) + ggtitle("Patient 591 monocytes")
-# monocytes_591@meta.data <- monocytes_591@meta.data %>% mutate(
-#   cell_type = case_when(
-#     seurat_clusters %in% c(0, 1, 2, 3, 4, 6, 8, 12) ~ "CD14+",
-#     seurat_clusters == 5 ~ "Intermediate",
-#     seurat_clusters %in% c(7, 11) ~ "CD16+",
-#     seurat_clusters == 9 ~ "B-like",
-#     seurat_clusters == 10 ~ "T-like",
-#     seurat_clusters == 13 ~ "NK-like"
-#   )
-# )
-# 
-# # patient 594 - CD14, CD16
-# DimPlot(monocytes_594, reduction = "wnn.umap", label = T) + ggtitle("Patient 594 monocytes")
-# DotPlot(monocytes_594, c("CD14", "FCGR3A")) + ggtitle("Patient 594 monocytes")
-# monocytes_594@meta.data <- monocytes_594@meta.data %>% mutate(
-#   cell_type = case_when(
-#     seurat_clusters %in% c(0, 1, 2, 4, 5, 6) ~ "CD14+",
-#     seurat_clusters == 3 ~ "CD16+",
-#   )
-# )
-# 
-# # Save annotated patient monocytes as H5
-# SaveH5Seurat(monocytes_515, paste0(project_path, "data/h5seurat/monocytes_515_2.h5seurat"))
-# SaveH5Seurat(monocytes_591, paste0(project_path, "data/h5seurat/monocytes_591_2.h5seurat"))
-# SaveH5Seurat(monocytes_594, paste0(project_path, "data/h5seurat/monocytes_594_2.h5seurat"))
-# 
-# 
-# # Load in annotated monocytes by patient
-# monocytes_515 <- LoadH5Seurat(paste0(project_path, "data/h5seurat/monocytes_515_2.h5seurat"))
-# monocytes_591 <- LoadH5Seurat(paste0(project_path, "data/h5seurat/monocytes_591_2.h5seurat"))
-# monocytes_594 <- LoadH5Seurat(paste0(project_path, "data/h5seurat/monocytes_594_2.h5seurat"))
-# 
-# # Function to plot cell type proportions
-# plot_cell_type_prop <- function(CELLTYPE, seurat_obj) {
-#   ct_dat <- seurat_obj@meta.data %>% filter(cell_type == CELLTYPE) %>% pull(timepoint) %>% table() %>% as.data.frame()
-#   colnames(ct_dat) <- c("time", "count")
-#   tot_dat <- seurat_obj@meta.data %>% pull(timepoint) %>% table() %>% as.data.frame()
-#   colnames(tot_dat) <- c("time", "count")
-#   prop_dat <- data.frame(
-#     time = ct_dat$time,
-#     prop = (ct_dat$count / tot_dat[tot_dat$time %in% ct_dat$time, ]$count)
-#     )
-#   ggplot(prop_dat, aes(y = prop, x = as.numeric(as.character(time)) , group = 1)) +
-#     geom_line() + 
-#     theme_bw() +
-#     ggtitle(paste0("Patient 515: ", CELLTYPE, " monocytes")) +
-#     xlab("Months since transplant") +
-#     ylab("Proportion of all monocytes")
-#   }
-# 
-# # We plot cell type proportions
-# 
-# monocytes_515_cell_prop_plots <- unique(monocytes_515$cell_type) %>%
-#   lapply(plot_cell_type_prop, monocytes_515) %>%
-#   setNames(unique(monocytes_515$cell_type))
-# 
-# monocytes_591_cell_prop_plots <- unique(monocytes_591$cell_type) %>%
-#   lapply(plot_cell_type_prop, monocytes_591) %>%
-#   setNames(unique(monocytes_591$cell_type))
-# 
-# monocytes_594_cell_prop_plots <- unique(monocytes_594$cell_type) %>%
-#   lapply(plot_cell_type_prop, monocytes_594) %>%
-#   setNames(unique(monocytes_594$cell_type))
-# 
-# # We also make dim plots
-# DimPlot(monocytes_515, reduction = "wnn.umap", group.by = "cell_type", label = T, repel = F) + ggtitle("Patient 515 monocytes")
-# DimPlot(monocytes_591, reduction = "wnn.umap", group.by = "cell_type", label = T, repel = F) + ggtitle("Patient 591 monocytes")
-# DimPlot(monocytes_594, reduction = "wnn.umap", group.by = "cell_type", label = T, repel = F) + ggtitle("Patient 594 monocytes")
+# Read in monocytes
+monocytes <- LoadH5Seurat(paste0(project_path, "data/h5seurat/monocytes_2.h5seurat"))
 
-# # Now, we add these cell types back to the SSc_monocytes object
-# # Build one combined lookup vector
-# 
-# celltype_lookup <- c(
-#   setNames(monocytes_515$cell_type, colnames(monocytes_515)),
-#   setNames(monocytes_591$cell_type, colnames(monocytes_591)),
-#   setNames(monocytes_594$cell_type, colnames(monocytes_594))
-# )
-# 
-# # Map directly by cell_ID
-# SSc_monocytes$cell_type <- celltype_lookup[SSc_monocytes$cell_ID]
-# 
-# # Save annotated SSc_monocytes
-# SaveH5Seurat(SSc_monocytes, paste0(project_path, "data/h5seurat/SSc_monocytes_2.h5seurat"))
-```
-
-Now, we run the model on all the patient monocytes. 
-
-```{r}
-# Read in data
-SSc_monocytes <- LoadH5Seurat(paste0(project_path, "data/h5seurat/SSc_monocytes_2.h5seurat"))
+# Subset out patient monocytes
+SSc_monocytes <- subset(monocytes, health == "SSc")
 
 # Design
 design_formula <- ~ subject + poly(timepoint)
@@ -231,81 +61,6 @@ results <- test_de(pbo_monocytes$fit, `poly(timepoint)`) %>%
 
 # Save all results
 write_csv(results, paste0(results_dir, "all_DE_results.csv"))
-results <- read_csv(paste0(results_dir, "all_DE_results.csv"))
-```
-
-Volcano plot of top DEGs:
-
-First, we grab genes from fav up pathways
-
-```{r}
-# Get all gene sets
-gene_sets <- gsea$DOWN@geneSets
-# Extract 5 favorite pathways
-fav_gene_sets <- gene_sets[favorite_pathways]
-
-# Make a named vector of p-values for quick lookup
-pval_lookup <- results$pval
-names(pval_lookup) <- results$name
-
-# Order each pathway's genes by p-value
-fav_gene_sets_ordered <- lapply(fav_gene_sets, function(genes) {
-  # Keep only genes that exist in results
-  genes_in_results <- intersect(genes, names(pval_lookup))
-  
-  # Order by p-value
-  genes_in_results[order(pval_lookup[genes_in_results])]
-})
-
-topgenes <- lapply(fav_gene_sets_ordered, function(x){head(x, 5)}) %>% unlist() %>% setNames(NULL) %>% unique()
-```
-
-
-```{r}
-results <- read_csv(paste0(results_dir, "all_DE_results.csv"))
-
-top10_up <- results %>% arrange(pval) %>% filter(lfc > 0.6) %>% pull(name) %>% head(10)
-
-top10_down <- results %>% arrange(pval) %>% filter(lfc < -0.6) %>% pull(name) %>% head(10)
-
-volc_down_degs <- levels(heat_df$gene)
-
-volc_up_degs <- results %>% arrange(pval) %>% filter(lfc < -0.6) %>% pull(name) %>% head(18)
-
-results <- results %>%
-  dplyr::rename(log2fc = lfc) %>%
-  mutate(`Trend following ASCT` = case_when(
-    log2fc > 0.6 & pval < 0.05 ~ "Up",
-    log2fc < -0.6 & pval < 0.05 ~ "Down",
-    TRUE ~ "Not significant"
-  )) %>%
-  mutate(delabel = case_when(
-    name %in% c(volc_down_degs, volc_up_degs) ~ name,
-    TRUE ~ NA
-  ))
-
-results$`Trend following ASCT` <- factor(results$`Trend following ASCT`, levels = c("Up", "Down", "Not significant"))
-
-volcanoplot <- ggplot(data = results, aes(x = log2fc, y = -log10(pval), col = `Trend following ASCT`, label = delabel)) +
-  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
-  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') + 
-  geom_point(size = 2) +
-  theme_classic(base_size = 20) +
-  theme(axis.title.y = element_text(face = "bold", margin = margin(0,20,0,0), size = rel(1.1), color = 'black'),
-        axis.title.x = element_text(hjust = 0.5, face = "bold", margin = margin(20,0,0,0), size = rel(1.1), color = 'black'),
-        plot.title = element_text(hjust = 0.5, size = rel(1.1))) +
-  scale_color_manual(values = c("red3", "#00AFBB", "grey")) +
-  labs(x = expression("log"[2]*"FC"), y = expression("-log"[10]*"p-value")) + 
-  scale_x_continuous(breaks = seq(-10, 10, 2)) +
-  ggtitle("Differentially expressed genes over time \nsince ASCT in jSSc monocytes") +
-  geom_label_repel(max.overlaps = Inf,
-                  size = rel(3),
-                  box.padding = 0.3,
-                  force = 4,
-                  show.legend = F)
-
-# Save as PNG
-ggsave(paste0(project_path, "figures/volcano_plot.png"), volcanoplot, width = 12, height = 6)
 ```
 
 Now we conduct pathway enrichment analysis based off of this tutorial:  https://biostatsquid.com/pathway-enrichment-analysis-tutorial-clusterprofiler/
@@ -313,10 +68,6 @@ Now we conduct pathway enrichment analysis based off of this tutorial:  https://
 Setup for GSEA is below:
 
 ```{r}
-# Load packages
-packages_2 <- c("tidyverse", "RColorBrewer", "pheatmap", "clusterProfiler", "enrichplot", "msigdbr")
-invisible(lapply(packages_2, require, character.only = TRUE))
-
 # Get hallmark, GO biological process, and GO cellular component pathways
 hallmark_sets <- msigdbr(species = "human",
                          collection = "H")
@@ -349,8 +100,8 @@ Let's run pathway analysis for each direction separately.
 
 # Add direction (whether expression goes up or down over time) to results data frame
 results_sig <- results %>% filter(pval < 0.05) %>% mutate(direction = case_when(
-  log2fc > 0 ~ 'UP',
-  log2fc < 0 ~ 'DOWN',
+  lfc > 0 ~ 'UP',
+  lfc < 0 ~ 'DOWN',
 ))
 
 # Split the dataframe into a list of sub-dataframes: upregulated, downregulated genes
@@ -369,9 +120,6 @@ gsea <- lapply(names(results_list),
                   maxGSSize = 500
               )) %>% setNames(names(results_list))
 
-saveRDS(gsea, paste0(project_path, "data/RDS_files/monocyte_gsea.RDS"))
-
-
 # View results
 # DOWN
 gsea$DOWN@result %>% head()
@@ -387,150 +135,366 @@ d) pathways that go up
 
 ```{r}
 # # Down genes
-down_res <- results_sig %>% filter(log2fc < 0)
+down_res <- results_sig %>% filter(lfc < 0)
 write_csv(down_res, paste0(results_dir, "down_DEGs.csv"))
-down_res <- read_csv(paste0(results_dir, "down_DEGs.csv"))
 
 # # Up genes
-up_res <- results_sig %>% filter(log2fc > 0)
+up_res <- results_sig %>% filter(lfc > 0)
 write_csv(up_res, paste0(results_dir, "up_DEGs.csv"))
-up_res <- read_csv(paste0(results_dir, "up_DEGs.csv"))
 
 # # Down pathways
 down_pathways <- gsea$DOWN@result
 write_csv(down_pathways, paste0(results_dir, "down_GSEA.csv"))
-down_pathways <- read_csv(paste0(results_dir, "down_GSEA.csv"))
 
 # # Up pathways
 up_pathways <- gsea$UP@result
 write_csv(up_pathways, paste0(results_dir, "up_GSEA.csv"))
-up_pathways <- read_csv(paste0(results_dir, "up_GSEA.csv"))
 ```
 
 
-Let's make a bar chart of the decreasing pathways.
+
+Out of the top statistically significant pathways with increasing and decreasing activity, we select the most biologically relevant pathways and display them in bar charts below.
+
+First, pathways with decreased activity over time since ASCT:
 
 ```{r}
-gsea_down_df <- gsea$DOWN@result %>% select(ID, p.adjust) %>% filter(p.adjust < 0.01)
-rownames(gsea_down_df) <- NULL
-gsea_down_df$ID <- sub("^[^_]+_", "", gsea_down_df$ID)
-gsea_down_df$ID <- factor(gsea_down_df$ID, levels = rev(gsea_down_df$ID))
+# Data frame mapping pathway IDs to formal pathway names
+down_pathways_to_show <- data.frame(full_name = c("HALLMARK_TNFA_SIGNALING_VIA_NFKB",
+                           "HALLMARK_INFLAMMATORY_RESPONSE",
+                           "GOBP_EPITHELIAL_CELL_DIFFERENTIATION",
+                           "HALLMARK_TGF_BETA_SIGNALING",
+                           "GOBP_REGULATION_OF_EPITHELIAL_CELL_PROLIFERATION",
+                           "GOBP_EPITHELIAL_CELL_PROLIFERATION",
+                           "HALLMARK_IL2_STAT5_SIGNALING",
+                           "HALLMARK_APOPTOSIS"
+                           ), plot_name = c("TNF-α signaling through NF-κB (Hallmark)",
+                                            "Inflammatory response (Hallmark)",
+                                            "Epithelial cell differentiation (GOBP)",
+                                            "TGF-β signaling (Hallmark)",
+                                            "Regulation of epithelial cell proliferation (GOBP)",
+                                            "Epithelial cell proliferation (GOBP)",
+                                            "IL2-STAT-5 signaling (Hallmark)",
+                                            "Apoptosis (Hallmark)"))
 
+# Create data frame including results for these pathways
+gsea_down_df <- down_pathways_to_show %>%
+  inner_join(
+    gsea$DOWN@result %>% select(ID, p.adjust),
+    by = c("full_name" = "ID")
+  ) %>%
+  filter(p.adjust < 0.05)
+
+# Bar chart
 gsea_down_plot <- ggplot(data = gsea_down_df, 
                          aes(x = -log10(p.adjust),
-                             y = ID)) +
+                             y = reorder(plot_name, -p.adjust))) +
   geom_col(fill = "steelblue") +
   theme_bw() +
   ylab("Gene set") +
   xlab(expression("-log"[10]*"p-value")) +
-  theme(text = element_text(color = "black", face = "bold")) +
-  ggtitle("Gene sets with decreased activity \nin jSSc monocytes over time since ASCT")
-
-# ggsave(paste0(project_path, "figures/gsea_down_plot.png"), gsea_down_plot, width = 8, height = 6)
+  ggtitle("Gene sets with decreased activity \nin jSSc monocytes over time since ASCT") +
+  theme(
+    text = element_text(face = "bold"),
+    axis.text = element_text(color = "black", size = 13),
+    axis.title = element_text(color = "black", size = 15),
+    plot.title = element_text(color = "black", size = 15)
+  ) +
+  scale_y_discrete(labels = function(x) str_wrap(x, width = 25))
+# Save as PNG
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/gsea_down_plot.png"), gsea_down_plot, width = 6.5, height = 5)
 ```
 
-Same for increasing
+Now, pathways with increasing activity over time since ASCT.
 
 ```{r}
-gsea_up_df <- gsea$UP@result %>% select(ID, p.adjust) %>% filter(p.adjust < 0.01)
-rownames(gsea_up_df) <- NULL
-gsea_up_df$ID <- sub("^[^_]+_", "", gsea_up_df$ID)
-gsea_up_df <- gsea_up_df[!duplicated(gsea_up_df$ID), ]
-gsea_up_df$ID <- factor(gsea_up_df$ID, levels = rev(gsea_up_df$ID))
+# Data frame mapping pathway IDs to formal names
+up_pathways_to_show <- data.frame(full_name = c("GOBP_CELLULAR_RESPIRATION",
+                         "GOBP_PROTON_MOTIVE_FORCE_DRIVEN_ATP_SYNTHESIS",
+                         "GOBP_ELECTRON_TRANSPORT_CHAIN",
+                         "GOCC_RESPIRATORY_CHAIN_COMPLEX",
+                         "HALLMARK_OXIDATIVE_PHOSPHORYLATION",
+                         "GOBP_OXIDATIVE_PHOSPHORYLATION"),
+                         plot_name = c("Cellular respiration (GOBP)",
+                                       "Proton motive force driven ATP synthesis (GOBP)",
+                                       "Electron transport chain (GOBP)",
+                                       "Respiratory chain complex (GOCC)",
+                                       "Oxidative phosphorylation (Hallmark)",
+                                       "Oxidative phosphorylation (GOBP)"))
 
+# Create data frame including results for these pathways
+gsea_up_df <- up_pathways_to_show %>%
+  inner_join(
+    gsea$UP@result %>% select(ID, p.adjust),
+    by = c("full_name" = "ID")
+  ) %>%
+  filter(p.adjust < 0.05)
+
+# Bar chart
 gsea_up_plot <- ggplot(data = gsea_up_df, 
                          aes(x = -log10(p.adjust),
-                             y = ID)) +
+                             y = reorder(plot_name, -p.adjust))) +
   geom_col(fill = "magenta3") +
   theme_bw() +
   ylab("Gene set") +
   xlab(expression("-log"[10]*"p-value")) +
-  theme(text = element_text(color = "black", face = "bold")) +
-  ggtitle("Gene sets with decreased activity \nin jSSc monocytes over time since ASCT")
-
-# ggsave(paste0(project_path, "figures/gsea_up_plot.png"), gsea_up_plot, width = 8, height = 6)
+  ggtitle("Gene sets with increased activity \nin jSSc monocytes over time since ASCT") +
+  theme(
+    text = element_text(face = "bold"),
+    axis.text = element_text(color = "black", size = 13),
+    axis.title = element_text(color = "black", size = 15),
+    plot.title = element_text(color = "black", size = 15)
+  ) +
+  scale_y_discrete(labels = function(x) str_wrap(x, width = 20))
+# Save as PNG
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/gsea_up_plot.png"), gsea_up_plot, width = 6.5, height = 5)
 ```
 
-Let's plot some genes that show up in our favorite (down) pathways
-
-```{r}
-favorite_pathways <- c("HALLMARK_TNFA_SIGNALING_VIA_NFKB", "HALLMARK_INFLAMMATORY_RESPONSE", "HALLMARK_TGF_BETA_SIGNALING", "HALLMARK_IL2_STAT5_SIGNALING", "GOBP_EPITHELIAL_CELL_DIFFERENTIATION")
-
-# fav_path_res <- gsea$DOWN %>% filter(ID %in% favorite_pathways)
-# 
-# # x <- cnetplot(fav_path_res)
-# fav_path_res_top <- fav_path_res
-# fav_path_res_top@result$geneID <- sapply(
-#   fav_path_res@result$geneID,
-#   function(x) {
-#     genes <- strsplit(x, "/")[[1]]
-#     n <- min(length(genes), 15)       # take up to 15 genes, or fewer if less than 15
-#     paste(genes[1:n], collapse = "/")
-#   }
-# )
-# 
-# cnetplot(fav_path_res_top, circular = TRUE, colorEdge = TRUE)
-
-```
+Now, we make a tile plot showing the top 5 most statistically significant longitudinal DEGs for our top decreasing pathways.
 
 ```{r}
 # Get all gene sets
-gene_sets <- gsea$DOWN@geneSets
+gene_sets_down <- gsea$DOWN@geneSets
+# Select top 5 pathways
+favorite_down_pathways <- c("HALLMARK_TNFA_SIGNALING_VIA_NFKB", "HALLMARK_INFLAMMATORY_RESPONSE", "HALLMARK_TGF_BETA_SIGNALING", "HALLMARK_IL2_STAT5_SIGNALING", "GOBP_EPITHELIAL_CELL_DIFFERENTIATION")
 # Extract 5 favorite pathways
-fav_gene_sets <- gene_sets[favorite_pathways]
-
-
+fav_gene_sets_down <- gene_sets_down[favorite_down_pathways]
 
 # Make a named vector of p-values for quick lookup
-pval_lookup <- results$pval
-names(pval_lookup) <- results$name
+pval_lookup_down <- results %>% filter(lfc < 0) %>% pull(pval)
+names(pval_lookup_down) <- results %>% filter(lfc < 0) %>% pull(name)
 
 # Order each pathway's genes by p-value
-fav_gene_sets_ordered <- lapply(fav_gene_sets, function(genes) {
+fav_gene_sets_down_ordered <- lapply(fav_gene_sets_down, function(genes) {
   # Keep only genes that exist in results
-  genes_in_results <- intersect(genes, names(pval_lookup))
+  genes_in_results <- intersect(genes, names(pval_lookup_down))
   
   # Order by p-value
-  genes_in_results[order(pval_lookup[genes_in_results])]
+  genes_in_results[order(pval_lookup_down[genes_in_results])]
 })
 
-topgenes <- lapply(fav_gene_sets_ordered, function(x){head(x, 5)}) %>% unlist() %>% setNames(NULL) %>% unique()
+# Get top 5 genes for each pathway and take intersection
+topgenes_down <- lapply(fav_gene_sets_down_ordered, function(x){head(x, 5)}) %>% unlist() %>% setNames(NULL) %>% unique()
 
-pathway_by_gene_mat <- sapply(topgenes, function(gene) {
-  sapply(fav_gene_sets_ordered, function(x) gene %in% x)
+# Matrix indicating which genes are in which pathway
+pathway_by_gene_mat_down <- sapply(topgenes_down, function(gene) {
+  sapply(fav_gene_sets_down_ordered, function(x) gene %in% x)
 })
 
-heat_df <- pathway_by_gene_mat %>%
+# Turn into data frame
+heat_df_down <- pathway_by_gene_mat_down %>%
   as.data.frame() %>%
   rownames_to_column("pathway") %>%
   pivot_longer(-pathway, names_to = "gene", values_to = "present")
 
-heat_df$gene <- factor(heat_df$gene, levels = topgenes)
+# Add gene to DF
+heat_df_down$gene <- factor(heat_df_down$gene, levels = topgenes_down)
 
-heat_df$pathway <- sub("^[^_]+_", "", heat_df$pathway)
+# Left join with gsea_down_df (formal pathway names for plotting)
+heat_df_down <-
+heat_df_down %>%
+    left_join(
+        gsea_down_df %>% select(full_name, plot_name),
+        by = c("pathway" = "full_name")
+    )
 
-gsea_plot_with_genes <- 
-  ggplot(heat_df, aes(x = gene, y = pathway, fill = present)) +
+# Plot it
+gsea_plot_with_genes_down <- 
+  ggplot(heat_df_down, aes(x = gene, y = plot_name, fill = present)) +
     geom_tile(color = "white") +
     scale_fill_manual(values = c("FALSE" = "white", "TRUE" = "firebrick")) +
     theme_minimal() +
     theme(
       axis.text.x = element_text(angle = 45, hjust = 1),
       panel.grid = element_blank(),
-      legend.position = "none"
+      legend.position = "none",
+      text = element_text(face = "bold"),
+    axis.text = element_text(color = "black", size = 13),
+    axis.title = element_text(color = "black", size = 15),
+    plot.title = element_text(color = "black", size = 15)
     ) +
     ylab("Gene Set") +
     xlab("Gene") +
-    ggtitle("Top DEGs contributing to pathways with decreased \nactivity in jSSc monocytes over time since ASCT")
+    ggtitle("Top DEGs contributing to pathways with decreased \nactivity in jSSc monocytes over time since ASCT")+
+  scale_y_discrete(labels = function(x) str_wrap(x, width = 25))
 
-ggsave(paste0(project_path, "figures/gsea_down_plot_with_genes.png"), gsea_plot_with_genes, width = 8, height = 6, bg = "white")
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/gsea_down_plot_with_genes.png"), gsea_plot_with_genes_down, width = 8, height = 6, bg = "white")
 ```
 
-```{r}
-gene_plots <- plot_pb_offset(pbo_monocytes, topgenes, groupBy = "subject")
+We do the same thing for increasing genes (though this is not the focus of our paper; will likely include in supplement)
 
-gene_plots_clean <- lapply(seq_along(gene_plots), function(i) {
-  p <- gene_plots[[i]]
+```{r}
+# Get all gene sets
+gene_sets_up <- gsea$UP@geneSets
+# Select top 5 pathways
+favorite_up_pathways <- up_pathways_to_show$full_name[1:5]
+# Extract 5 favorite pathways
+fav_gene_sets_up <- gene_sets_up[favorite_up_pathways]
+
+# Make a named vector of p-values for quick lookup
+pval_lookup_up <- results %>% filter(lfc > 0) %>% pull(pval)
+names(pval_lookup_up) <- results %>% filter(lfc > 0) %>% pull(name)
+
+# Order each pathway's genes by p-value
+fav_gene_sets_up_ordered <- lapply(fav_gene_sets_up, function(genes) {
+  # Keep only genes that exist in results
+  genes_in_results <- intersect(genes, names(pval_lookup_up))
+  
+  # Order by p-value
+  genes_in_results[order(pval_lookup_up[genes_in_results])]
+})
+
+# Get top 5 genes for each pathway and take intersection
+topgenes_up <- lapply(fav_gene_sets_up_ordered, function(x){head(x, 5)}) %>% unlist() %>% setNames(NULL) %>% unique()
+
+# Matrix indicating which genes are in which pathway
+pathway_by_gene_mat_up <- sapply(topgenes_up, function(gene) {
+  sapply(fav_gene_sets_up_ordered, function(x) gene %in% x)
+})
+
+# Turn into data frame
+heat_df_up <- pathway_by_gene_mat_up %>%
+  as.data.frame() %>%
+  rownames_to_column("pathway") %>%
+  pivot_longer(-pathway, names_to = "gene", values_to = "present")
+
+# Add gene to DF
+heat_df_up$gene <- factor(heat_df_up$gene, levels = topgenes_up)
+
+# Left join with gsea_up_df (formal pathway names for plotting)
+heat_df_up <-
+heat_df_up %>%
+    left_join(
+        gsea_up_df %>% select(full_name, plot_name),
+        by = c("pathway" = "full_name")
+    )
+
+# Plot it
+gsea_plot_with_genes_up <- 
+  ggplot(heat_df_up, aes(x = gene, y = plot_name, fill = present)) +
+    geom_tile(color = "white") +
+    scale_fill_manual(values = c("FALSE" = "white", "TRUE" = "darkorange")) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid = element_blank(),
+      legend.position = "none",
+      text = element_text(face = "bold"),
+    axis.text = element_text(color = "black", size = 13),
+    axis.title = element_text(color = "black", size = 15),
+    plot.title = element_text(color = "black", size = 15)
+    ) +
+    ylab("Gene Set") +
+    xlab("Gene") +
+    ggtitle("Top DEGs contributing to pathways with increased \nactivity in jSSc monocytes over time since ASCT")+
+  scale_y_discrete(labels = function(x) str_wrap(x, width = 25))
+
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/gsea_up_plot_with_genes.png"), gsea_plot_with_genes_up, width = 8, height = 6, bg = "white")
+```
+
+Now we will produce longitudinal plots for the genes shown in the tile plots.
+
+We start with decreasing genes.
+
+```{r}
+# Plot with custom function
+gene_plots_down <- plot_pb_offset(pbo_monocytes, topgenes_down, groupBy = "subject")
+
+# Arrange plots
+gene_plots_down_clean <- lapply(seq_along(gene_plots_down), function(i) {
+  p <- gene_plots_down[[i]]
+  nrow <- 6; ncol <- 3
+  row <- (i - 1) %/% ncol
+  col <- (i - 1) %% ncol
+  p <- p + theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    plot.title = element_text(size = 30)
+  )
+  p
+})
+# Customize
+gene_plots_down_combined <- wrap_plots(gene_plots_down_clean, nrow = 6, ncol = 3) +
+  plot_layout(guides = "collect") +
+  plot_annotation(
+    caption = "Months since transplant"
+  ) &
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 30, face = "plain"),   # fix bold/oversized
+    legend.title = element_text(size = 30, face = "plain"),
+    legend.key.size = unit(0.8, "lines"),
+    plot.caption = element_text(hjust = 0.5, size = 30),
+    plot.margin = margin(50, 10, 10, 30, "pt") 
+  )
+# Customize further
+gene_plots_down_combined <- wrap_elements(full = gene_plots_down_combined) +
+  labs(tag = "Counts per million (log2 scale)") +
+  theme(
+    plot.tag = element_text(size = 30, angle = 90, hjust = 0.5, vjust = -1),
+    plot.tag.position = "left"
+  ) + ggtitle("Downward longitudinal trends for key DEGs \nin jSSc monocytes over time since ASCT") + theme(plot.title = element_text(size = 30, face = "bold"))
+# Save as PNG
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/gene_plots_down_combined.png"), 
+       gene_plots_down_combined, width = 14, height = 24, bg = "white")
+```
+
+Now for increasing genes/pathways.
+
+```{r}
+# Plot with custom function
+gene_plots_up <- plot_pb_offset(pbo_monocytes, topgenes_up, groupBy = "subject")
+
+# Arrange plots
+gene_plots_up_clean <- lapply(seq_along(gene_plots_up), function(i) {
+  p <- gene_plots_up[[i]]
+  nrow <- 4; ncol <- 3
+  row <- (i - 1) %/% ncol
+  col <- (i - 1) %% ncol
+  p <- p + theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    plot.title = element_text(size = 30)
+  )
+  p
+})
+# Customize
+gene_plots_up_combined <- wrap_plots(gene_plots_up_clean, nrow = 4, ncol = 3) +
+  plot_layout(guides = "collect") +
+  plot_annotation(
+    caption = "Months since transplant"
+  ) &
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 30, face = "plain"),   # fix bold/oversized
+    legend.title = element_text(size = 30, face = "plain"),
+    legend.key.size = unit(0.8, "lines"),
+    plot.caption = element_text(hjust = 0.5, size = 30),
+    plot.margin = margin(50, 10, 10, 30, "pt") 
+  )
+# Customize further
+gene_plots_up_combined <- wrap_elements(full = gene_plots_up_combined) +
+  labs(tag = "Counts per million (log2 scale)") +
+  theme(
+    plot.tag = element_text(size = 30, angle = 90, hjust = 0.5, vjust = -1),
+    plot.tag.position = "left"
+  ) + ggtitle("Upward longitudinal trends for key DEGs \nin jSSc monocytes over time since ASCT") + theme(plot.title = element_text(size = 30, face = "bold"))
+# Save as PNG
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/gene_plots_up_combined.png"), 
+       gene_plots_up_combined, width = 14, height = 18, bg = "white")
+```
+
+Now, we make a reduced version of the downward DEGs to be included in one of the main figures.
+
+```{r}
+# Select group of decreasing DEGs to show
+six_down_degs <- c("SERPINE1", "FOSL1", "SMAD3", "TAGLN2", "CDKN1C", "LYN")
+
+# Plot with custom function
+gene_plots_down_reduced <- plot_pb_offset(pbo_monocytes, six_down_degs, groupBy = "subject")
+
+# Arrange plots
+gene_plots_down_reduced_clean <- lapply(seq_along(gene_plots_down_reduced), function(i) {
+  p <- gene_plots_down_reduced[[i]]
   nrow <- 6; ncol <- 3
   row <- (i - 1) %/% ncol
   col <- (i - 1) %% ncol
@@ -538,18 +502,13 @@ gene_plots_clean <- lapply(seq_along(gene_plots), function(i) {
   p <- p + theme(
     axis.title.x = element_blank(),
     axis.title.y = element_blank(),
-    #plot.margin = margin(0.25, 0.25, 0.25, 0.25, "pt"),
     plot.title = element_text(size = 30)
   )
-  
-  if (row < nrow - 1) {
-    #p <- p + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
-  }
-  
   p
 })
 
-gene_plots_combined <- wrap_plots(gene_plots_clean, nrow = 6, ncol = 3) +
+# Customize
+gene_plots_down_reduced_combined <- wrap_plots(gene_plots_down_reduced_clean, nrow = 2, ncol = 3) +
   plot_layout(guides = "collect") +
   plot_annotation(
     caption = "Months since transplant"
@@ -563,49 +522,191 @@ gene_plots_combined <- wrap_plots(gene_plots_clean, nrow = 6, ncol = 3) +
     plot.margin = margin(50, 10, 10, 30, "pt") 
   )
 
-gene_plots_combined <- wrap_elements(full = gene_plots_combined) +
+# Customize further
+gene_plots_down_reduced_combined <- wrap_elements(full = gene_plots_down_reduced_combined) +
   labs(tag = "Counts per million (log2 scale)") +
   theme(
     plot.tag = element_text(size = 30, angle = 90, hjust = 0.5, vjust = -1),
     plot.tag.position = "left"
-  ) + ggtitle("Downward longitudinal trends for key DEGs \nin jSSc monocytes over time since ASCT") + theme(plot.title = element_text(size = 30), face = "bold")
+  ) + ggtitle("Downward longitudinal trends for key DEGs in jSSc monocytes over \ntime since ASCT") + theme(plot.title = element_text(size = 30, face = "bold"))
 
-ggsave(paste0(project_path, "figures/gene_plots_combined.png"), 
-       gene_plots_combined, width = 14, height = 24, bg = "white")
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/gene_plots_down_reduced_combined.png"), 
+       gene_plots_down_reduced_combined, width = 14, height = 8, bg = "white")
 ```
 
-Some plots to show cluster 8 over time
+Now, we'll make some volcano plots showing DEGs that go up and down over time since ASCT. We highlight the same pathway-involved genes we used above, as well as the top 10 genes in each direction.
 
 ```{r}
-SSc_monocytes <- LoadH5Seurat(paste0(project_path, "data/h5seurat/SSc_monocytes.h5seurat"))
+# Top 10 genes that go up
+top10_up <- results %>% arrange(pval) %>% filter(lfc > 0.5) %>% pull(name) %>% head(10)
+# Key upward pathway genes
+pathway_genes_up <- heat_df_up$gene %>% levels()
+# Take union
+up_highlight <- union(top10_up, pathway_genes_up)
 
-healthy_monocytes <- LoadH5Seurat(paste0(project_path, "data/h5seurat/healthy_monocytes.h5seurat"))
+# Top 10 genes that go down
+top10_down <- results %>% arrange(pval) %>% filter(lfc < -0.5) %>% pull(name) %>% head(10)
+# Key downward pathway genes
+pathway_genes_down <- heat_df_down$gene %>% levels()
+# Take union
+down_highlight <- union(top10_down, pathway_genes_down)
 
-merged <- merge(healthy_monocytes, SSc_monocytes)
-DefaultAssay(merged) <- "RNA"
-merged$group <- factor(merged$group, levels = c("healthy", "baseline", "six", "twelve", "twen4"))
+# Create new data frame for plotting (mutation of results from pb offset)
+volc_results <- results %>%
+  mutate(`Trend following ASCT` = case_when(
+    lfc > 0.5 & pval < 0.05 ~ "Up",
+    lfc < -0.5 & pval < 0.05 ~ "Down",
+    TRUE ~ "Not significant"
+  )) %>%
+  mutate(delabel = case_when(
+    name %in% c(up_highlight, down_highlight) ~ name,
+    TRUE ~ NA
+  ))
 
-DefaultAssay(SSc_monocytes) <- "RNA"
+# Put significance levels in proper order
+volc_results$`Trend following ASCT` <- factor(volc_results$`Trend following ASCT`, levels = c("Up", "Down", "Not significant"))
 
-DimPlot(SSc_monocytes, 
-        reduction = "wnn.umap", 
-        label = TRUE, 
-        split.by = "group", 
-        cells.highlight = Cells(subset(SSc_monocytes, seurat_clusters == 8))) +
+# Volcano plot
+jSSc_longitudinal_volcano <- ggplot(data = volc_results, aes(x = lfc, y = -log10(pval), col = `Trend following ASCT`, label = delabel)) +
+  geom_vline(xintercept = c(-0.5, 0.5), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') + 
+  geom_point(size = 2) +
+  theme_classic(base_size = 20) +
+  theme(axis.title.y = element_text(face = "bold", margin = margin(0,20,0,0), size = rel(1.1), color = 'black'),
+        axis.title.x = element_text(hjust = 0.5, face = "bold", margin = margin(20,0,0,0), size = rel(1.1), color = 'black'),
+        plot.title = element_text(hjust = 0.5, size = rel(1.1)),
+        plot.title.position = "plot",
+        text = element_text(face = "bold", color = "black")) +
+  scale_color_manual(values = c("red3", "#00AFBB", "grey")) +
+  labs(x = expression("log"[2]*"FC"), y = expression("-log"[10]*"p-value")) + 
+  scale_x_continuous(breaks = seq(-10, 10, 2)) +
+  ggtitle("Differentially expressed genes over time since ASCT in jSSc monocytes") +
+  geom_label_repel(max.overlaps = Inf,
+                  size = rel(3),
+                  box.padding = 0.3,
+                  force = 4,
+                  show.legend = F,
+                  na.rm = T)
+
+# Save as PNG
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/jSSc_longitudinal_volcano.png"), jSSc_longitudinal_volcano, width = 12, height = 6)
+```
+
+We also make a volcano plot comparing jSSc and HC.
+
+```{r}
+# Make sure default assay is set to RNA
+DefaultAssay(monocytes) <- "RNA"
+
+# Run pb offset for baseline and healthy, where we are testing group membership (two-way comparison) rather than time coefficient.
+SSc_v_h_PB <- pb_offset(subset(monocytes, group %in% c("baseline", "healthy")), "sample_id", ~health)
+# Test DE
+SSc_v_h_PB_results <- SSc_v_h_PB$fit %>% test_de("healthSSc") %>% arrange(pval)
+
+# Get top 20 up DEGs
+top20_up_pb <- SSc_v_h_PB_results %>% arrange(pval) %>% filter(lfc > 0.5) %>% pull(name) %>% head(20)
+# Get to 20 down DEGs
+top20_down_pb <- SSc_v_h_PB_results %>% arrange(pval) %>% filter(lfc < -0.5) %>% pull(name) %>% head(20)
+
+# Create new data frame for plotting (mutation of results from pb offset)
+SSc_v_h_PB_volc_results <- SSc_v_h_PB_results %>%
+  mutate(`SSc vs. HC` = case_when(
+    lfc > 0.5 & pval < 0.05 ~ "Up",
+    lfc < -0.5 & pval < 0.05 ~ "Down",
+    TRUE ~ "Not significant"
+  )) %>%
+  mutate(delabel = case_when(
+    name %in% c(top20_down_pb, top20_up_pb) ~ name,
+    TRUE ~ NA
+  ))
+
+# Put significance levels in proper order
+SSc_v_h_PB_volc_results$`SSc vs. HC` <- factor(SSc_v_h_PB_volc_results$`SSc vs. HC`, levels = c("Up", "Down", "Not significant"))
+
+# Volcano plot
+SSc_v_h_volcano <- ggplot(data = SSc_v_h_PB_volc_results, aes(x = lfc, y = -log10(pval), col = `SSc vs. HC`, label = delabel)) +
+  geom_vline(xintercept = c(-0.5, 0.5), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  geom_point(size = 2) +
+  theme_classic(base_size = 20) +
+  theme(axis.title.y = element_text(face = "bold", margin = margin(0,20,0,0), size = rel(1.1), color = 'black'),
+        axis.title.x = element_text(hjust = 0.5, face = "bold", margin = margin(20,0,0,0), size = rel(1.1), color = 'black'),
+        plot.title = element_text(hjust = 0.5, size = rel(1.1)),
+        plot.title.position = "plot",
+        text = element_text(face = "bold", color = "black")) +
+  scale_color_manual(values = c( "red3", "#00AFBB", "grey")) +
+  labs(x = expression("log"[2]*"FC"), y = expression("-log"[10]*"p-value")) +
+  scale_x_continuous(breaks = seq(-10, 10, 2)) +
+  ggtitle(str_wrap("Differentially expressed genes in SSc (before ASCT) vs. healthy controls (pseudobulk level)", width = 75)) +
+  geom_label_repel(max.overlaps = Inf,
+                  size = rel(3),
+                  box.padding = 0.3,
+                  force = 4,
+                  show.legend = F,
+                  na.rm = T)
+# Save as PNG
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/SSc_v_healthy_pb_volcano.png"), width = 12, height = 6)
+```
+
+
+We find cluster 9 (subgroup of CD14+ monocytes) particularly interesting, as many of are key decreasing genes are expressed in this cluster. We make some plots to illustrate this.
+
+```{r}
+clus9_umap_by_group <-
+DimPlot(monocytes,
+        reduction = "wnn.umap",
+        label = TRUE,
+        split.by = "group",
+        cells.highlight = Cells(subset(monocytes, seurat_clusters == 9))) +
   scale_color_manual(
     values = c("Unselected" = "grey80", "Group_1" = "red"),
     breaks = "Group_1",
-    labels = "Cluster 8"
+    labels = "Cluster 9"
   ) +
   labs(color = NULL) +
-  ggtitle("jSSc monocytes over time since ASCT") +
-  labs(caption = str_wrap("SSc monocytes sub-cluster 8 over time since ASCT. RNA markers for this cluster include SERPINE1, EMP1, RGCC, ATF3, CDKN1A, FOSL1, and CCL2. GSEA suggests increased TNF-Alpha signaling, inflammation, IL2/STAT5 signaling, TGF-Beta signaling, and IL6/JAK/STAT3 in this cluster. Cluster 8 is primarily comprised of cells from baseline and 6 months after ASCT, with the population nearly disappearing at 12 and 24 months after ASCT."), width = 120) +
-  theme(plot.caption = element_text(size = 9, hjust = 0))
+  ggtitle("Monocyte cluster 9 in healthy controls and jSSc patients over time since ASCT") +
+  theme(plot.title.position = "plot",
+        plot.title = element_text(size = 14)) +
+  facet_wrap(~group, labeller = as_labeller(c(
+    "healthy" = "Healthy",
+    "baseline" = "Baseline",
+    "six" = "6 mo.",
+    "twelve" = "12 mo.",
+    "twen4" = "24 mo."
+  )), nrow = 1)
+# Save as PNG
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/clus9_umap_by_group.png"), width = 8, height = 4)
+```
 
-DotPlot(SSc_monocytes, features = c("SERPINE1", "EMP1", "RGCC", "ATF3", "CDKN1A", "FOSL1", "CCL2"), group.by = "group", dot.scale = 20) + coord_flip() + scale_color_gradient2(low = "steelblue", mid = "white", high = "darkred", midpoint = 0) + ggtitle(str_wrap("Expression of jSSc monocyte cluster 8 DEGs over time since ASCT", width = 35)) + ylab("Timepoint") + xlab("Gene") +
-  labs(caption = str_wrap("These genes were upregulated in cluster 8 of the jSSc monocytes. Expression within all monocytes (not only cluster 8) is illustrated above.", width = 60)) +
-  theme(plot.caption = element_text(size = 9, hjust = 0))
+Now, we make a dotplot showing the expression of some key downward DEGs. 
 
+```{r}
+# Create dot plot
+down_deg_dot <-
+DotPlot(monocytes,
+        features = six_down_degs,
+        group.by = "group",
+        dot.scale = 30)
 
+# Replace the default geom_point layer
+down_deg_dot$layers[[1]] <-
+  geom_point(
+    aes(size = pct.exp, fill = avg.exp.scaled),
+    shape = 21,
+    color = "black",
+    stroke = 0.6
+  )
+
+down_deg_dot <-
+  down_deg_dot +
+    coord_flip() +
+    scale_fill_gradient2(low = "steelblue", mid = "white", high = "darkred", midpoint = 0) +
+    ggtitle(str_wrap("Expression of select jSSc monocyte DEGs over time since ASCT", width = 70)) +
+    ylab("Timepoint") +
+    xlab("Gene") +
+    theme(plot.caption = element_text(size = 9, hjust = 0))
+
+# Save image
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/down_deg_dot.png"), down_deg_dot, width = 10, height = 6, bg = "white")
 ```
 
