@@ -620,6 +620,13 @@ SSc_v_h_PB <- pb_offset(subset(monocytes, group %in% c("baseline", "healthy")), 
 # Test DE
 SSc_v_h_PB_results <- SSc_v_h_PB$fit %>% test_de("healthSSc") %>% arrange(pval)
 
+# We save the top 50 upregulated DEGs and top 50 downregulated DEGs as CSV
+top50_up_results <- SSc_v_h_PB_results %>% filter(lfc > 0.5) %>% head(50)
+top50_down_results <- SSc_v_h_PB_results %>% filter(lfc < 0.5) %>% head(50)
+# Write CSV
+write_csv(top50_up_results, paste0(project_path, "data/DEG_pathway_CSVs/SSc_v_healthy/top50_SSc_v_healthy_monocytes_UP.csv"))
+write_csv(top50_down_results, paste0(project_path, "data/DEG_pathway_CSVs/SSc_v_healthy/top50_SSc_v_healthy_monocytes_DOWN.csv"))
+
 # Get top 20 up DEGs
 top20_up_pb <- SSc_v_h_PB_results %>% arrange(pval) %>% filter(lfc > 0.5) %>% pull(name) %>% head(20)
 # Get to 20 down DEGs
