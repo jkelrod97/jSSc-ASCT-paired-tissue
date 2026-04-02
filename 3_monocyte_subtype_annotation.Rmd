@@ -60,6 +60,13 @@ Now we're going to annotate the monocytes.
 # 
 # monocytes %>% DimPlot(reduction = "wnn.umap", label = T)
 # 
+# rna_markers <- FindAllMarkers(monocytes, assay = "RNA", only.pos = T)
+# Only get signifiant markers
+# rna_markers_sig <- rna_markers %>% filter(avg_log2FC > 0.6 & p_val_adj < 0.05)
+# # Split rna marker df by cluster
+# rna_marker_list <- split(rna_markers_sig, rna_markers_sig$cluster)
+# # Save as separate CSVs
+# lapply(names(rna_marker_list), function(clus){write_csv(rna_marker_list[[clus]], paste0(project_path, "data/annotation_deg_CSVs/monocyte_annotation/monocyte_cluster_", clus, ".csv"))})
 # adt_markers <- FindAllMarkers(monocytes, assay = "DSB", only.pos = T)
 # 
 # monocytes$seurat_clusters %>% levels() %>% lapply(function(clus){
