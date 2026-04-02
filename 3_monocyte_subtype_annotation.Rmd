@@ -269,7 +269,7 @@ monocytes@meta.data$group_spaced <- factor(
 
 monocytes_prop_by_group <- ggplot(monocytes@meta.data, aes(y = group_spaced, fill = cell_type)) +
     geom_bar(position = "fill", color = "black") +
-    scale_fill_brewer(palette = "Set3", name = "Cell type") +
+    scale_fill_manual(values = rev(brewer.pal(8, "Set3")), name = "Cell type") +
     scale_y_discrete(labels = c("HC", "", "SSc baseline", "SSc 6 mo.", "SSc 12 mo.", "SSc 24 mo."),
                      drop = FALSE) +
     coord_flip() +

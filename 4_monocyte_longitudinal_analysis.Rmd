@@ -666,34 +666,7 @@ ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/SSc_v_heal
 ```
 
 
-We find cluster 9 (subgroup of CD14+ monocytes) particularly interesting, as many of are key decreasing genes are expressed in this cluster. We make some plots to illustrate this.
 
-```{r}
-clus9_umap_by_group <-
-DimPlot(monocytes,
-        reduction = "wnn.umap",
-        label = TRUE,
-        split.by = "group",
-        cells.highlight = Cells(subset(monocytes, seurat_clusters == 9))) +
-  scale_color_manual(
-    values = c("Unselected" = "grey80", "Group_1" = "red"),
-    breaks = "Group_1",
-    labels = "Cluster 9"
-  ) +
-  labs(color = NULL) +
-  ggtitle("Monocyte cluster 9 in healthy controls and jSSc patients over time since ASCT") +
-  theme(plot.title.position = "plot",
-        plot.title = element_text(size = 14)) +
-  facet_wrap(~group, labeller = as_labeller(c(
-    "healthy" = "Healthy",
-    "baseline" = "Baseline",
-    "six" = "6 mo.",
-    "twelve" = "12 mo.",
-    "twen4" = "24 mo."
-  )), nrow = 1)
-# Save as PNG
-ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/clus9_umap_by_group.png"), width = 8, height = 4)
-```
 
 Now, we make a dotplot showing the expression of some key downward DEGs. 
 
@@ -725,5 +698,68 @@ down_deg_dot <-
 
 # Save image
 ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/down_deg_dot.png"), down_deg_dot, width = 10, height = 6, bg = "white")
+```
+
+We find cluster 9 (subgroup of CD14+ monocytes) particularly interesting, as many of are key decreasing genes are expressed in this cluster. We make some plots to illustrate this.
+
+```{r}
+clus9_umap_by_group <-
+DimPlot(monocytes,
+        reduction = "wnn.umap",
+        label = TRUE,
+        split.by = "group",
+        cells.highlight = Cells(subset(monocytes, seurat_clusters == 9))) +
+  scale_color_manual(
+    values = c("Unselected" = "grey80", "Group_1" = "red"),
+    breaks = "Group_1",
+    labels = "Cluster 9"
+  ) +
+  labs(color = NULL) +
+  ggtitle("Monocyte cluster 9 in healthy controls and jSSc patients over time since ASCT") +
+  theme(plot.title.position = "plot",
+        plot.title = element_text(size = 14)) +
+  facet_wrap(~group, labeller = as_labeller(c(
+    "healthy" = "Healthy",
+    "baseline" = "Baseline",
+    "six" = "6 mo.",
+    "twelve" = "12 mo.",
+    "twen4" = "24 mo."
+  )), nrow = 1)
+# Save as PNG
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/clus9_umap_by_group.png"), width = 8, height = 4)
+```
+
+Which genes are up-regulated in cluster 9 compared to the other clusters?
+
+```{r}
+# Set Idents to clusters
+Idents(monocytes) <- "seurat_clusters"
+
+# Find DEGs between clus 9 and other clusters
+clus9_markers <- FindMarkers(monocytes, ident.1 = 9, assay = "RNA")
+
+# Get signficiant markers
+sig_clus_9_markers <- clus9_markers %>% filter(p_val_adj < 0.05 & abs(avg_log2FC) > 2) %>% rownames()
+
+# Now, let's see which of these are in our pathways of interest
+clus_9_markers_in_tnfa <- sig_clus_9_markers[sig_clus_9_markers %in% fav_gene_sets_down$HALLMARK_TNFA_SIGNALING_VIA_NFKB]
+
+# Make dotplot
+clus9_tnfa_dot <- DotPlot(monocytes, clus_9_markers_in_tnfa, dot.scale = 10) +
+    coord_flip() +
+    scale_color_gradient2(low = "steelblue", mid = "white", high = "darkred", midpoint = 0) +
+    ggtitle(str_wrap("Genes upregulated in monocyte cluster 9 involved in TNFA signaling via NFKB", width = 50)) +
+    ylab("Cluster") +
+    xlab("Gene") +
+    theme(plot.caption = element_text(size = 9, hjust = 0))
+
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/clus9_tnfa_dotplot.png"), width = 10, height = 10, bg = "white")
+```
+
+Let's look at expression of these genes over time and in HC
+
+```{r}
+# Subset out cluster 9
+clus9_genes_over_time_feature <- FeaturePlot(clus9, c("LAMB3", "AREG", "SERPINE1"), split.by = "group", reduction = "wnn.umap", order = T, label = F, cols = c("grey95", "magenta3")) 
 ```
 
