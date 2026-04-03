@@ -61,12 +61,6 @@ Now we're going to annotate the monocytes.
 # monocytes %>% DimPlot(reduction = "wnn.umap", label = T)
 # 
 # rna_markers <- FindAllMarkers(monocytes, assay = "RNA", only.pos = T)
-# Only get signifiant markers
-# rna_markers_sig <- rna_markers %>% filter(avg_log2FC > 0.6 & p_val_adj < 0.05)
-# # Split rna marker df by cluster
-# rna_marker_list <- split(rna_markers_sig, rna_markers_sig$cluster)
-# # Save as separate CSVs
-# lapply(names(rna_marker_list), function(clus){write_csv(rna_marker_list[[clus]], paste0(project_path, "data/annotation_deg_CSVs/monocyte_annotation/monocyte_cluster_", clus, ".csv"))})
 # adt_markers <- FindAllMarkers(monocytes, assay = "DSB", only.pos = T)
 # 
 # monocytes$seurat_clusters %>% levels() %>% lapply(function(clus){
@@ -296,5 +290,27 @@ monocytes_prop_by_group <- ggplot(monocytes@meta.data, aes(y = group_spaced, fil
 ggsave(paste0(project_path, "figures/3_monocyte_subtype_annotation/monocytes_prop_by_group.png"), monocytes_prop_by_group, height = 7, width = 8)
 ```
 
+For biological annotation of monocyte sub-clusters:
+
+```{r}
+# Set idents
+Idents(monocytes) <- "seurat_clusters"
+# Get RNA markers
+rna_markers <- FindAllMarkers(monocytes, assay = "RNA", only.pos = T)
+# Only get signifiant markers
+rna_markers_sig <- rna_markers %>% filter(avg_log2FC > 0.5 & p_val < 0.05)
+# Split rna marker df by cluster
+rna_marker_list <- split(rna_markers_sig, rna_markers_sig$cluster)
+# Save as separate CSVs
+lapply(names(rna_marker_list), function(clus){
+  # Get cell type
+  cell_type <- monocytes@meta.data %>% filter(seurat_clusters == clus) %>% pull(cell_type) %>% unique()
+  # Cell type directory
+  save_dir <- paste0(project_path, "data/annotation_deg_CSVs/monocyte_annotation/", cell_type)
+  # Does directory for this cell type exist? If not create it
+  if (!dir.exists(save_dir)) {dir.create(save_dir)}
+  # Save CSV to cell type directory
+  write_csv(rna_marker_list[[clus]], paste0(project_path, "data/annotation_deg_CSVs/monocyte_annotation/", cell_type, "/cluster_", clus, ".csv"))})
+```
 
 
