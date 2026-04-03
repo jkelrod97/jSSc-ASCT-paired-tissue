@@ -296,27 +296,55 @@ heat_df_down %>%
         by = c("pathway" = "full_name")
     )
 
+# We use same palette as prior pathway plot
+down_gb <- ggplot_build(gsea_down_plot)
+down_fill_mapping <- 
+data.frame(
+  full_name = down_gb$plot$data$full_name,
+  fill = unique(down_gb$data[[1]]$fill)
+)
+
+# Create new variable with fill color
+heat_df_down <- heat_df_down %>%
+  left_join(down_fill_mapping, by = c("pathway" = "full_name")) %>%
+  mutate(fill_color = ifelse(present, fill, "white"))
+
+
+# Genes to bold (in 3 + pathways)
+pathway_counts <- levels(heat_df_down$gene) %>% lapply(function(GENE){heat_df_down %>% filter(gene == GENE) %>% pull(present) %>% sum()}) %>% setNames(levels(heat_df_down$gene)) %>% unlist()
+genes_to_bold <- pathway_counts[pathway_counts >= 3] %>% names()
+
+# Named vector: gene -> styled label
+gene_labels <- heat_df_down %>%
+    distinct(gene) %>%
+    mutate(label = ifelse(gene %in% genes_to_bold,
+                          paste0("<b>", gene, "</b>"),
+                          as.character(gene))) %>%
+    tibble::deframe()
+
 # Plot it
 gsea_plot_with_genes_down <- 
-  ggplot(heat_df_down, aes(x = gene, y = plot_name, fill = present)) +
-    geom_tile(color = "white") +
-  #  scale_fill_manual(values = c("FALSE" = "white", "TRUE" = "firebrick")) +
+  ggplot(heat_df_down, aes(x = gene, y = plot_name, fill = fill_color)) +
+    geom_tile(color = "black") +
     theme_minimal() +
+  scale_fill_identity() +
     theme(
-      axis.text.x = element_text(angle = 45, hjust = 1),
       panel.grid = element_blank(),
       legend.position = "none",
-      text = element_text(face = "bold"),
+      #text = element_text(face = "bold"),
     axis.text = element_text(color = "black", size = 13),
+    axis.text.y = element_text(face = "bold"),
     axis.title = element_text(color = "black", size = 15),
-    plot.title = element_text(color = "black", size = 15)
+    plot.title = element_text(color = "black", size = 15, face = "bold")
     ) +
     ylab("Gene Set") +
     xlab("Gene") +
-    ggtitle(str_wrap("Top DEGs contributing to pathways with decreased activity in jSSc monocytes over time since ASCT", width = 35)) +
-  scale_y_discrete(labels = function(x) str_wrap(x, width = 25))
+    ggtitle(str_wrap("Top DEGs contributing to pathways with decreased activity in jSSc monocytes over time since ASCT", width = 40)) +
+  scale_y_discrete(labels = function(x) str_wrap(x, width = 25)) +
+  scale_x_discrete(labels = gene_labels) +
+  theme(axis.text.x = element_markdown(angle = 45, hjust = 1, size = 11))
 
-ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/gsea_down_plot_with_genes.png"), gsea_plot_with_genes_down, width = 6.5, height = 5, bg = "white")
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/gsea_down_plot_with_genes.png"), gsea_plot_with_genes_down, width = 7, height = 5, bg = "white")
 ```
 
 We do the same thing for increasing genes (though this is not the focus of our paper; will likely include in supplement)
@@ -326,7 +354,6 @@ We do the same thing for increasing genes (though this is not the focus of our p
 gene_sets_up <- gsea$UP@geneSets
 # Select top 5 pathways
 favorite_up_pathways <- up_pathways_to_show$full_name
-# Extract 5 favorite pathways
 fav_gene_sets_up <- gene_sets_up[favorite_up_pathways]
 
 # Make a named vector of p-values for quick lookup
@@ -367,27 +394,55 @@ heat_df_up %>%
         by = c("pathway" = "full_name")
     )
 
+# We use same palette as prior pathway plot
+up_gb <- ggplot_build(gsea_up_plot)
+up_fill_mapping <- 
+data.frame(
+  full_name = up_gb$plot$data$full_name,
+  fill = unique(up_gb$data[[1]]$fill)
+)
+
+# Create new variable with fill color
+heat_df_up <- heat_df_up %>%
+  left_join(up_fill_mapping, by = c("pathway" = "full_name")) %>%
+  mutate(fill_color = ifelse(present, fill, "white"))
+
+
+# Genes to bold (in 3 + pathways)
+pathway_counts <- levels(heat_df_up$gene) %>% lapply(function(GENE){heat_df_up %>% filter(gene == GENE) %>% pull(present) %>% sum()}) %>% setNames(levels(heat_df_up$gene)) %>% unlist()
+genes_to_bold <- pathway_counts[pathway_counts >= 3] %>% names()
+
+# Named vector: gene -> styled label
+gene_labels <- heat_df_up %>%
+    distinct(gene) %>%
+    mutate(label = ifelse(gene %in% genes_to_bold,
+                          paste0("<b>", gene, "</b>"),
+                          as.character(gene))) %>%
+    tibble::deframe()
+
 # Plot it
 gsea_plot_with_genes_up <- 
-  ggplot(heat_df_up, aes(x = gene, y = plot_name, fill = present)) +
-    geom_tile(color = "white") +
-    scale_fill_manual(values = c("FALSE" = "white", "TRUE" = "darkorange")) +
+  ggplot(heat_df_up, aes(x = gene, y = plot_name, fill = fill_color)) +
+    geom_tile(color = "black") +
     theme_minimal() +
+  scale_fill_identity() +
     theme(
-      axis.text.x = element_text(angle = 45, hjust = 1),
       panel.grid = element_blank(),
       legend.position = "none",
-      text = element_text(face = "bold"),
+      #text = element_text(face = "bold"),
     axis.text = element_text(color = "black", size = 13),
+    axis.text.y = element_text(face = "bold"),
     axis.title = element_text(color = "black", size = 15),
-    plot.title = element_text(color = "black", size = 15)
+    plot.title = element_text(color = "black", size = 15, face = "bold")
     ) +
     ylab("Gene Set") +
     xlab("Gene") +
-    ggtitle("Top DEGs contributing to pathways with increased \nactivity in jSSc monocytes over time since ASCT")+
-  scale_y_discrete(labels = function(x) str_wrap(x, width = 25))
+    ggtitle(str_wrap("Top DEGs contributing to pathways with decreased activity in jSSc monocytes over time since ASCT", width = 40)) +
+  scale_y_discrete(labels = function(x) str_wrap(x, width = 25)) +
+  scale_x_discrete(labels = gene_labels) +
+  theme(axis.text.x = element_markdown(angle = 45, hjust = 1, size = 11))
 
-ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/gsea_up_plot_with_genes.png"), gsea_plot_with_genes_up, width = 8, height = 6, bg = "white")
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/gsea_up_plot_with_genes.png"), gsea_plot_with_genes_up, width = 7, height = 5, bg = "white")
 ```
 
 Now we will produce longitudinal plots for the genes shown in the tile plots.
