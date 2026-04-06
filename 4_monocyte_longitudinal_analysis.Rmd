@@ -29,7 +29,7 @@ Now load in useful packages and custom functions.
 packages <- c("Seurat", "dplyr", "tidyr", "SeuratDisk", "harmony", "readr",
               "ggplot2", "stringr", "SoupX", "dsb", "data.table", "Matrix",
               "scDblFinder", "scater", "ggrepel","tidyverse", "RColorBrewer", "pheatmap",
-              "clusterProfiler", "enrichplot", "msigdbr", "patchwork", "grid", "gridExtra")
+              "clusterProfiler", "enrichplot", "msigdbr", "patchwork", "grid", "gridExtra", "ggtext")
 invisible(lapply(packages, require, character.only = TRUE))
 
 # Source functions
@@ -254,7 +254,7 @@ Now, we make a tile plot showing the top 5 most statistically significant longit
 ```{r}
 # Get all gene sets
 gene_sets_down <- gsea$DOWN@geneSets
-# Select top 5 pathways
+# Select top pathways
 favorite_down_pathways <- down_pathways_to_show$full_name
 fav_gene_sets_down <- gene_sets_down[favorite_down_pathways]
 
@@ -304,6 +304,7 @@ data.frame(
   fill = unique(down_gb$data[[1]]$fill)
 )
 
+
 # Create new variable with fill color
 heat_df_down <- heat_df_down %>%
   left_join(down_fill_mapping, by = c("pathway" = "full_name")) %>%
@@ -322,6 +323,12 @@ gene_labels <- heat_df_down %>%
                           as.character(gene))) %>%
     tibble::deframe()
 
+# Set levels of pathway
+heat_df_down$plot_name <- factor(
+  heat_df_down$plot_name,
+  levels = down_gb$layout$panel_params[[1]]$y$breaks
+)
+
 # Plot it
 gsea_plot_with_genes_down <- 
   ggplot(heat_df_down, aes(x = gene, y = plot_name, fill = fill_color)) +
@@ -331,11 +338,10 @@ gsea_plot_with_genes_down <-
     theme(
       panel.grid = element_blank(),
       legend.position = "none",
-      #text = element_text(face = "bold"),
     axis.text = element_text(color = "black", size = 13),
     axis.text.y = element_text(face = "bold"),
-    axis.title = element_text(color = "black", size = 15),
-    plot.title = element_text(color = "black", size = 15, face = "bold")
+    axis.title = element_text(color = "black", size = 15, face = "bold"),
+    plot.title = element_text(color = "black", size = 15, face = "bold"),
     ) +
     ylab("Gene Set") +
     xlab("Gene") +
@@ -412,6 +418,12 @@ heat_df_up <- heat_df_up %>%
 pathway_counts <- levels(heat_df_up$gene) %>% lapply(function(GENE){heat_df_up %>% filter(gene == GENE) %>% pull(present) %>% sum()}) %>% setNames(levels(heat_df_up$gene)) %>% unlist()
 genes_to_bold <- pathway_counts[pathway_counts >= 3] %>% names()
 
+# Set levels of pathway
+heat_df_up$plot_name <- factor(
+  heat_df_up$plot_name,
+  levels = up_gb$layout$panel_params[[1]]$y$breaks
+)
+
 # Named vector: gene -> styled label
 gene_labels <- heat_df_up %>%
     distinct(gene) %>%
@@ -432,7 +444,7 @@ gsea_plot_with_genes_up <-
       #text = element_text(face = "bold"),
     axis.text = element_text(color = "black", size = 13),
     axis.text.y = element_text(face = "bold"),
-    axis.title = element_text(color = "black", size = 15),
+    axis.title = element_text(color = "black", size = 15, face = "bold"),
     plot.title = element_text(color = "black", size = 15, face = "bold")
     ) +
     ylab("Gene Set") +
