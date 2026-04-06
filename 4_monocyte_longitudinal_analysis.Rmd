@@ -468,7 +468,7 @@ gene_plots_down <- plot_pb_offset(pbo_monocytes, topgenes_down, groupBy = "subje
 # Arrange plots
 gene_plots_down_clean <- lapply(seq_along(gene_plots_down), function(i) {
   p <- gene_plots_down[[i]]
-  nrow <- 6; ncol <- 3
+  nrow <- 7; ncol <- 3
   row <- (i - 1) %/% ncol
   col <- (i - 1) %% ncol
   p <- p + theme(
@@ -479,7 +479,7 @@ gene_plots_down_clean <- lapply(seq_along(gene_plots_down), function(i) {
   p
 })
 # Customize
-gene_plots_down_combined <- wrap_plots(gene_plots_down_clean, nrow = 6, ncol = 3) +
+gene_plots_down_combined <- wrap_plots(gene_plots_down_clean, nrow = 7, ncol = 3) +
   plot_layout(guides = "collect") +
   plot_annotation(
     caption = "Months since transplant"
@@ -621,6 +621,8 @@ top10_up <- results %>% arrange(pval) %>% filter(lfc > 0.5) %>% pull(name) %>% h
 pathway_genes_up <- heat_df_up$gene %>% levels()
 # Take union
 up_highlight <- union(top10_up, pathway_genes_up)
+# We don't want to show genes without a name
+up_highlight <- up_highlight[!grepl("ENSG", up_highlight)]
 
 # Top 10 genes that go down
 top10_down <- results %>% arrange(pval) %>% filter(lfc < -0.5) %>% pull(name) %>% head(10)
@@ -663,7 +665,7 @@ legend.box.background = element_rect(color = "black")) +
   labs(x = expression("log"[2]*"FC"), y = expression("-log"[10]*"p-value")) + 
   scale_x_continuous(breaks = seq(-10, 10, 2)) +
   ggtitle(str_wrap("Differentially expressed genes over time since ASCT in jSSc monocytes", width = 50)) +
-  geom_label_repel(max.overlaps = Inf,
+  geom_label_repel(#max.overlaps = Inf,
                   # size = rel(3),
                   box.padding = 0.3,
                   force = 4,
