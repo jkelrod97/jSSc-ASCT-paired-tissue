@@ -774,79 +774,57 @@ down_deg_dot <-
 ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/down_deg_dot.png"), down_deg_dot, width = 10, height = 6, bg = "white")
 ```
 
-We assign a biological annotation to each cluster
+We assign a biological annotation to each CD14+ sub-cluster.
 
 ```{r}
-monocytes@meta.data <- monocytes@meta.data %>%
+cd14 <- subset(monocytes, cell_type == "CD14+")
+cd14@meta.data <- cd14@meta.data %>%
   mutate(
     bio_annotation = case_when(
-      seurat_clusters == 0 ~ "CD14+ CCL20+ TK1+",
-      seurat_clusters == 1 ~ "CD14+ PDE3A+ LY6G5B+",
-      seurat_clusters == 2 ~ "CD14+ LAMP5+ MMP14+ MUC12+",
-      seurat_clusters == 3 ~ "CD14+ CLEC5A+ CXCR2+ TNFAIP6+",
-      seurat_clusters == 4 ~ "CD14+ ST7-AS1+ SINGLEC1+ ZNF219+",
-      seurat_clusters == 5 ~ "CD16+ CDKN1C+ LYPD2+ MERTK+",
-      seurat_clusters == 6 ~ "CD16+ LY6E+ FCGR3A+ IFITM1+",
-      seurat_clusters == 7 ~ "CD14+ CCL2+ CXCL10+ IFI44L+",
-      seurat_clusters == 9 ~ "CD14+ MARCO+ CCL2+ CLDN5+",
-      TRUE ~ cell_type
+      seurat_clusters == 0 | seurat_clusters == 3 ~ "TNFAIP6+ CXCR2+ CLEC5A+",
+      seurat_clusters == 1 | seurat_clusters == 7 ~ "SIGLEC1+ ST7-AS1+",
+      seurat_clusters == 2 ~ "LAMP5+",
+      seurat_clusters == 4 ~ "MUC12+",
+      seurat_clusters == 9 ~ "MARCO+ CCL2+ CLDN5+",
     )
   )
 
-# Break up into multiple lines for plotting
-monocytes$bio_annotation_wrapped <- str_wrap(monocytes$bio_annotation, width = 15)
-
-
-# Custom color palette
-my_pal <- c(
-  "#4E79A7", 
-  "#F28E2B",  
-  "#59A14F",  
-  "#E15759", 
-  "#76B7B2",  
-  "#EDC948",  
-  "#B07AA1",  
-  "#FF9DA7",  
-  "#6A5ACD",  
-  "#00BCD4", 
-  "#499894",  
-  "#F06292"   
-)
 
 # Build UMAP
-monocyte_bio_umap <-
-  monocytes %>%
+cd14_bio_umap <-
+  cd14 %>%
   DimPlot(
     reduction  = "wnn.umap",
     label      = TRUE,
-    group.by   = "bio_annotation_wrapped",
-    cols       = my_pal,
+    group.by   = "bio_annotation",
+    cols       = paletteer_d("ggthemes::Classic_Purple_Gray_6"),
     pt.size    = 0.6,
     label.box  = TRUE,
     repel      = TRUE,
-    combine    = FALSE
+    combine    = FALSE,
+    alpha = 0.7
   ) %>%
   pluck(1) +
-  ggtitle("jSSc and healthy monocyte sub-clusters with biological annotations") +
+  ggtitle("jSSc and healthy CD14+ monocyte sub-clusters with biological annotations") +
   theme(plot.title = element_text(size = 18))
 
 # Find and style the label layer
 label_idx <- which(sapply(
-  monocyte_bio_umap$layers,
+  cd14_bio_umap$layers,
   function(l) inherits(l$geom, "GeomLabelRepel")
 ))
 
-monocyte_bio_umap$layers[[label_idx]]$aes_params$fill      <- "white"
-monocyte_bio_umap$layers[[label_idx]]$aes_params$alpha     <- 0.75
-monocyte_bio_umap$layers[[label_idx]]$aes_params$fontface  <- "bold"
-monocyte_bio_umap$layers[[label_idx]]$aes_params$size      <- 5
-monocyte_bio_umap$layers[[label_idx]]$aes_params$linewidth <- 0.4
+cd14_bio_umap$layers[[label_idx]]$aes_params$fill      <- "white"
+cd14_bio_umap$layers[[label_idx]]$aes_params$alpha     <- 0.75
+cd14_bio_umap$layers[[label_idx]]$aes_params$fontface  <- "bold"
+cd14_bio_umap$layers[[label_idx]]$aes_params$size      <- 5
+cd14_bio_umap$layers[[label_idx]]$aes_params$linewidth <- 0.4
 
-monocyte_bio_umap
+cd14_bio_umap
 
-# Save as PNG
-ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/bio_annotation_umap.png"),
-       monocyte_bio_umap, width = 10, height = 8)
+# # Save as PNG
+# ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/bio_annotation_umap.png"),
+#        cd14_bio_umap, width = 10, height = 8)
 ```
 
 
@@ -854,28 +832,14 @@ Now we make a dotplot showing these markers:
 
 ```{r}
 # Markers to show
-bio_markers <- c("CCL20", "TK1",
-                 "PDE3A", "LY6G5B",
-                 "LAMP5", "MMP14", "MUC12",
-                 "CLEC5A", "CXCR2", "TNFAIP6",
-                 "ST7-AS1", "SIGLEC1", "ZNF219",
-                 "CDKN1C", "LYPD2", "MERTK",
-                 "LY6E", "FCGR3A", "IFITM1",
-                 "CCL2", "CXCL10", "IFI44L",
-                 "MARCO", "CLDN5")
-mono_subset  <- monocytes %>% subset(!grepl("like", cell_type)) %>% subset(downsample = 60)
+bio_markers <- c("LAMP5",
+                 "MARCO", "CCL2", "CLDN5",
+                 "MUC12",
+                 "SIGLEC1", "ST7-AS1",
+                 "TNFAIP6", "CXCR2", "CLEC5A")
 
-dp <- DotPlot(mono_subset, bio_markers, group.by = "bio_annotation_wrapped")
+dp <- DotPlot(cd14, bio_markers, group.by = "bio_annotation")
 dp_data <- dp$data
-dp_data$id <- factor(dp_data$id, levels = str_wrap(c("CD14+ CCL20+ TK1+",
-"CD14+ PDE3A+ LY6G5B+",
-"CD14+ LAMP5+ MMP14+ MUC12+",
-"CD14+ CLEC5A+ CXCR2+ TNFAIP6+",
-"CD14+ ST7-AS1+ SINGLEC1+ ZNF219+",
-"CD16+ CDKN1C+ LYPD2+ MERTK+",
-"CD16+ LY6E+ FCGR3A+ IFITM1+",
-"CD14+ CCL2+ CXCL10+ IFI44L+",
-"CD14+ MARCO+ CCL2+ CLDN5+"), width = 15))
 
 ggplot(dp_data, aes(y = features.plot, x = id, fill = avg.exp.scaled)) +
   geom_tile()
