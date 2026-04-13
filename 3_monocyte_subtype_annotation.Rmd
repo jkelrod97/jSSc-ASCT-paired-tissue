@@ -228,19 +228,25 @@ Now we generate some UMAPs.
 ```{r}
 # All jSSc and HC monocytes
 monocyte_dim_plot <-
-  monocytes %>% DimPlot(reduction = "wnn.umap", label = T, group.by = "cell_type", cols = rev(brewer.pal(8, "Set3"))) #+ ggtitle("jSSc and healthy monocytes")
+  monocytes %>% DimPlot(reduction = "wnn.umap", label = T, group.by = "cell_type", cols = rev(brewer.pal(8, "Set3"))) +
+  labs(x = "WNN UMAP 1", y = "WNN UMAP 2")
+#+ ggtitle("jSSc and healthy monocytes")
 # Save as PNG
 ggsave(paste0(project_path, "figures/3_monocyte_subtype_annotation/jSSc_and_healthy_monocytes_umap.png"))
 
 # By group (jSSc time points and HC)
 monocyte_dim_plot_by_group <-
-  monocytes %>% DimPlot(reduction = "wnn.umap", label = T, group.by = "cell_type", cols = rev(brewer.pal(8, "Set3")), split.by = "group") #+ ggtitle("jSSc and healthy monocytes by group")
+  monocytes %>% DimPlot(reduction = "wnn.umap", label = T, group.by = "cell_type", cols = rev(brewer.pal(8, "Set3")), split.by = "group") +
+  labs(x = "WNN UMAP 1", y = "WNN UMAP 2")
+#+ ggtitle("jSSc and healthy monocytes by group")
 # Save as PNG
 ggsave(paste0(project_path, "figures/3_monocyte_subtype_annotation/jSSc_and_healthy_monocytes_by_group_umap.png"), height = 4, width = 9)
 
 # By health (jSSc vs. HC)
 monocyte_dim_plot_by_health <-
-  monocytes %>% DimPlot(reduction = "wnn.umap", label = T, group.by = "cell_type", cols = rev(brewer.pal(8, "Set3")), split.by = "health") #+ ggtitle("jSSc vs. healthy monocytes")
+  monocytes %>% DimPlot(reduction = "wnn.umap", label = T, group.by = "cell_type", cols = rev(brewer.pal(8, "Set3")), split.by = "health") +
+  labs(x = "WNN UMAP 1", y = "WNN UMAP 2")
+ #+ ggtitle("jSSc vs. healthy monocytes")
 # Save as PNG
 ggsave(paste0(project_path, "figures/3_monocyte_subtype_annotation/jSSc_and_healthy_monocytes_by_health_umap.png"), height = 5.79, width = 7.4)
 
@@ -252,7 +258,9 @@ monocytes@meta.data <- monocytes@meta.data %>%
     LIBRARY = factor(LIBRARY, levels = c("HC", "515", "591", "594"))
   )
 monocyte_dim_plot_by_library <-
-  monocytes %>% DimPlot(reduction = "wnn.umap", label = T, group.by = "cell_type", cols = rev(brewer.pal(8, "Set3")), split.by = "LIBRARY") #+ ggtitle("jSSc and healthy monocytes by library")
+  monocytes %>% DimPlot(reduction = "wnn.umap", label = T, group.by = "cell_type", cols = rev(brewer.pal(8, "Set3")), split.by = "LIBRARY") +
+  labs(x = "WNN UMAP 1", y = "WNN UMAP 2") 
+#+ ggtitle("jSSc and healthy monocytes by library")
 # Save as PNG
 ggsave(paste0(project_path, "figures/3_monocyte_subtype_annotation/jSSc_and_healthy_monocytes_by_library_umap.png"), height = 3, width = 10)
 ```
