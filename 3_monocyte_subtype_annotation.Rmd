@@ -283,16 +283,17 @@ monocytes_prop_by_group <- ggplot(monocytes@meta.data, aes(y = group_spaced, fil
                      drop = FALSE) +
     coord_flip() +
     theme_bw() +
-    labs(x = "Cell type proportion", y = "Group") +
+    labs(x = "Cell type proportion") +
     geom_hline(yintercept = 2, col = "black", linewidth = 1, linetype = "dashed") +
     #ggtitle(str_wrap("HC vs. jSSc monocyte subtype proportions over time since ASCT", width = 40)) +
     theme(
         axis.text.x = element_text(size = 16, angle = 45, hjust = 1, color = "black"),
         axis.text.y = element_text(size = 14),
-        axis.title.x = element_text(size = 18),
+        axis.title.x = element_blank(),
         axis.title.y = element_text(size = 18),
         plot.title = element_text(size = 18, face = "bold"),
-        legend.text = element_text(size = 14)
+        legend.position = "none"
+        #legend.text = element_text(size = 14)
     )
 # Save as PNG
 ggsave(paste0(project_path, "figures/3_monocyte_subtype_annotation/monocytes_prop_by_group.png"), monocytes_prop_by_group, height = 7, width = 8)
