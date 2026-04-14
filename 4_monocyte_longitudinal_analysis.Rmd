@@ -190,7 +190,6 @@ gsea_down_plot <- ggplot(data = gsea_down_df,
   theme_bw() +
   ylab("Gene set") +
   xlab(expression("-log"[10]*"p-value")) +
-  #ggtitle(str_wrap("Gene sets with decreased activity in jSSc monocytes over time since ASCT", 40)) +
   theme(
     text = element_text(face = "bold"),
     axis.text = element_text(color = "black", size = 13),
@@ -345,7 +344,6 @@ gsea_plot_with_genes_down <-
     ) +
     ylab("Gene Set") +
     xlab("Gene") +
-    #ggtitle(str_wrap("Top DEGs contributing to pathways with decreased activity in jSSc monocytes over time since ASCT", width = 40)) +
   scale_y_discrete(labels = function(x) str_wrap(x, width = 25)) +
   scale_x_discrete(labels = gene_labels) +
   theme(axis.text.x = element_markdown(angle = 45, hjust = 1, size = 11))
@@ -449,7 +447,6 @@ gsea_plot_with_genes_up <-
     ) +
     ylab("Gene Set") +
     xlab("Gene") +
-    #ggtitle(str_wrap("Top DEGs contributing to pathways with decreased activity in jSSc monocytes over time since ASCT", width = 40)) +
   scale_y_discrete(labels = function(x) str_wrap(x, width = 25)) +
   scale_x_discrete(labels = gene_labels) +
   theme(axis.text.x = element_markdown(angle = 45, hjust = 1, size = 11))
@@ -667,7 +664,6 @@ legend.box.background = element_rect(color = "black")) +
   scale_color_manual(values = c("red3", "#00AFBB", "grey")) +
   labs(x = expression("log"[2]*"FC"), y = expression("-log"[10]*"p-value")) + 
   scale_x_continuous(breaks = seq(-10, 10, 2)) +
-  #ggtitle(str_wrap("Differentially expressed genes over time since ASCT in jSSc monocytes", width = 50)) +
   geom_label_repel(#max.overlaps = Inf,
                   # size = rel(3),
                   box.padding = 0.3,
@@ -680,7 +676,7 @@ legend.box.background = element_rect(color = "black")) +
 ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/jSSc_longitudinal_volcano.png"), jSSc_longitudinal_volcano, width = 14, height = 10)
 ```
 
-We also make a volcano plot comparing jSSc and HC.
+We also make a volcano plot comparing jSSc and Healthy.
 
 ```{r}
 # Make sure default assay is set to RNA
@@ -704,7 +700,7 @@ ssc_v_h_down_highlight <- c("LINC03078", "ANK2", "HFM1", "RETN", "SLCO5A1", "TPT
 
 # Create new data frame for plotting (mutation of results from pb offset)
 SSc_v_h_PB_volc_results <- SSc_v_h_PB_results %>%
-  mutate(`SSc vs. HC` = case_when(
+  mutate(`SSc vs. Healthy` = case_when(
     lfc > 0.5 & pval < 0.05 ~ "Up",
     lfc < -0.5 & pval < 0.05 ~ "Down",
     TRUE ~ "Not significant"
@@ -715,10 +711,10 @@ SSc_v_h_PB_volc_results <- SSc_v_h_PB_results %>%
   ))
 
 # Put significance levels in proper order
-SSc_v_h_PB_volc_results$`SSc vs. HC` <- factor(SSc_v_h_PB_volc_results$`SSc vs. HC`, levels = c("Up", "Down", "Not significant"))
+SSc_v_h_PB_volc_results$`SSc vs. Healthy` <- factor(SSc_v_h_PB_volc_results$`SSc vs. Healthy`, levels = c("Up", "Down", "Not significant"))
 
 # Volcano plot
-SSc_v_h_volcano <- ggplot(data = SSc_v_h_PB_volc_results, aes(x = lfc, y = -log10(pval), col = `SSc vs. HC`, label = delabel)) +
+SSc_v_h_volcano <- ggplot(data = SSc_v_h_PB_volc_results, aes(x = lfc, y = -log10(pval), col = `SSc vs. Healthy`, label = delabel)) +
   geom_vline(xintercept = c(-0.5, 0.5), col = "gray", linetype = 'dashed') +
   geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
   geom_point(size = 2) +
@@ -731,7 +727,6 @@ SSc_v_h_volcano <- ggplot(data = SSc_v_h_PB_volc_results, aes(x = lfc, y = -log1
   scale_color_manual(values = c( "red3", "#00AFBB", "grey")) +
   labs(x = expression("log"[2]*"FC"), y = expression("-log"[10]*"p-value")) +
   scale_x_continuous(breaks = seq(-10, 10, 2)) +
-  #ggtitle(str_wrap("Differentially expressed genes in SSc monocytes (before ASCT) vs. healthy monocytes (pseudobulk level)", width = 75)) +
   geom_label_repel(max.overlaps = Inf,
                   size = 6.5,
                   box.padding = 0.3,
@@ -768,10 +763,16 @@ down_deg_dot <-
   down_deg_dot +
     coord_flip() +
     scale_fill_gradient2(low = "steelblue", mid = "white", high = "darkred", midpoint = 0) +
-    #ggtitle(str_wrap("Expression of select jSSc monocyte DEGs over time since ASCT", width = 70)) +
     ylab("Timepoint") +
     xlab("Gene") +
-    theme(plot.caption = element_text(size = 9, hjust = 0))
+    theme(plot.caption = element_text(size = 9, hjust = 0)) +
+  scale_y_discrete(labels = c(
+      "healthy" = "Healthy",
+      "baseline" = "SSc baseline",
+      "six" = "SSc 6 mo.",
+      "twelve" = "SSc 12 mo.",
+      "twen4" = "SSc 24 mo."
+    ))
 
 # Save image
 ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/down_deg_dot.png"), down_deg_dot, width = 10, height = 6, bg = "white")
