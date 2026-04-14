@@ -579,13 +579,12 @@ scler_pbmc@meta.data$group_spaced <- factor(
 prop_by_group <- ggplot(scler_pbmc@meta.data, aes(y = group_spaced, fill = cell_type)) +
     geom_bar(position = "fill", color = "black") +
     scale_fill_brewer(palette = "Set3", name = "Cell type") +
-    scale_y_discrete(labels = c("HC", "", "SSc baseline", "SSc 6 mo.", "SSc 12 mo.", "SSc 24 mo."),
+    scale_y_discrete(labels = c("Healthy", "", "SSc baseline", "SSc 6 mo.", "SSc 12 mo.", "SSc 24 mo."),
                      drop = FALSE) +
     coord_flip() +
     theme_bw() +
     labs(x = "Cell type proportion") +
     geom_hline(yintercept = 2, col = "black", linewidth = 1, linetype = "dashed") +
-    #ggtitle("HC vs. jSSc cell type proportions over time since ASCT") +
     theme(
         axis.text.x = element_text(size = 16, angle = 45, hjust = 1, color = "black"),
         axis.text.y = element_text(size = 14),
@@ -593,7 +592,6 @@ prop_by_group <- ggplot(scler_pbmc@meta.data, aes(y = group_spaced, fill = cell_
         axis.title.x = element_blank(),
         plot.title = element_text(size = 18, face = "bold"),
         legend.position = "none"
-        #legend.text = element_text(size = 14)
     )
 
 # Save as PNG
