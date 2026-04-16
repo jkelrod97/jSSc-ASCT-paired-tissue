@@ -942,6 +942,7 @@ gsea_ssc_v_h_up <- enricher(
                   maxGSSize = 500
               )
 
+
 ssc6_v_h_up_degs <- SSc6_v_h_PB_volc_results %>% filter(`SSc 6 mo. vs. Healthy` == "Up") %>% pull(name)
 
 gsea_ssc6_v_h_up <- enricher(
@@ -980,6 +981,80 @@ gsea_ssc24_v_h_up <- enricher(
                   minGSSize = 5,
                   maxGSSize = 500
               )
+
+# Save results as CSV
+write_csv(gsea_ssc_v_h_up@result, paste0(results_dir, "gsea_SSc_baseline_v_h_pathways.csv"))
+write_csv(gsea_ssc6_v_h_up@result, paste0(results_dir, "gsea_SSc_6_v_h_pathways.csv"))
+write_csv(gsea_ssc12_v_h_up@result, paste0(results_dir, "gsea_SSc_12_v_h_pathways.csv"))
+write_csv(gsea_ssc24_v_h_up@result, paste0(results_dir, "gsea_SSc_24_v_h_pathways.csv"))
+```
+
+Now, we make some plots of NFKB/inflammation response pathways over time
+
+```{r}
+# Get all gene sets
+results_list <-
+list(gsea_ssc_v_h_up@result,
+gsea_ssc6_v_h_up@result,
+gsea_ssc12_v_h_up@result,
+gsea_ssc24_v_h_up@result) %>% setNames(c("SSc baseline vs. healthy",
+                                       "SSc 6 mo. vs. healthy",
+                                       "SSc 12 mo vs. healthy",
+                                       "SSc 24 mo vs. healthy"))
+
+# Extract results for NFKB
+nfkb_results <- lapply(results_list, function(x){filter(x, ID == "HALLMARK_TNFA_SIGNALING_VIA_NFKB") %>% select("ID", "p.adjust", "FoldEnrichment")})
+# Turn into DF for plotting
+nfkb_df <- bind_rows(nfkb_results, .id = "comparison")
+# Order levels and create neg log10 variable
+nfkb_df <- nfkb_df %>%
+  mutate(comparison = factor(comparison, 
+                             levels = c("SSc baseline vs. healthy",
+                                        "SSc 6 mo. vs. healthy",
+                                        "SSc 12 mo vs. healthy",
+                                        "SSc 24 mo vs. healthy")),
+         neg_log_p = -log10(p.adjust))
+
+# Plot it
+nfkb_plot <-
+ggplot(nfkb_df, aes(x = comparison, y = neg_log_p)) +
+  geom_point(aes(size = FoldEnrichment), color = "steelblue", alpha = 0.8) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") +
+  annotate("text", x = 0.7, y = -log10(0.05) + 0.3,
+           label = "p = 0.05", color = "red", hjust = 0, size = 3.5) +
+  scale_size_continuous(name = "TNF-α signaling via \nNF-κB fold enrichment", range = c(4, 12)) +
+  labs(x = NULL, y = bquote(-log[10]~adj.~p~"for TNF-α signaling via NF-κB")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+# Save as PNG
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/nfkb_plot.png"), bg = "white", width = 7, height = 6)
+
+# Extract results for inflammation
+inflammation_results <- lapply(results_list, function(x){filter(x, ID == "HALLMARK_INFLAMMATORY_RESPONSE") %>% select("ID", "p.adjust", "FoldEnrichment")})
+# Turn into DF for plotting
+inflammation_df <- bind_rows(inflammation_results, .id = "comparison")
+# Order levels and create neg log10 variable
+inflammation_df <- inflammation_df %>%
+  mutate(comparison = factor(comparison, 
+                             levels = c("SSc baseline vs. healthy",
+                                        "SSc 6 mo. vs. healthy",
+                                        "SSc 12 mo vs. healthy",
+                                        "SSc 24 mo vs. healthy")),
+         neg_log_p = -log10(p.adjust))
+
+# Plot it
+inflammation_plot <-
+ggplot(inflammation_df, aes(x = comparison, y = neg_log_p)) +
+  geom_point(aes(size = FoldEnrichment), color = "steelblue", alpha = 0.8) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") +
+  annotate("text", x = 0.7, y = -log10(0.05) + 0.3,
+           label = "p = 0.05", color = "red", hjust = 0, size = 3.5) +
+  scale_size_continuous(name = "Inflammatory response \nfold enrichment", range = c(4, 12)) +
+  labs(x = NULL, y = bquote(-log[10]~adj.~p~"for inflammatory response")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+# Save as PNG
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/inflammation_plot.png"), bg = "white", width = 7, height = 6)
 ```
 
 
