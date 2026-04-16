@@ -1267,3 +1267,33 @@ clus9_prop_plot_health <- ggplot(aes(y = Proportion, x = Health, fill = Health),
 # Save as PNG
 ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/clus9_prop_plot_health.png"), clus9_prop_plot_health, width = 7, height = 7)
 ```
+
+We want to investigate the amount of overlap between each of the decreasing gene sets to aid our interpretation.
+
+```{r}
+# Intersection between each of the 6 gene sets of interest
+pathway_intersect_mat <- 
+mapply(function(i){mapply(function(j){length(intersect(i, j))}, fav_gene_sets_down_ordered)}, fav_gene_sets_down_ordered)
+# Pretty names
+rownames(pathway_intersect_mat) <- down_pathways_to_show[down_pathways_to_show$full_name == rownames(pathway_intersect_mat), ]$plot_name
+colnames(pathway_intersect_mat) <- down_pathways_to_show[down_pathways_to_show$full_name == colnames(pathway_intersect_mat), ]$plot_name
+
+# Jaccard similarity (intersection/union)
+sizes <- diag(pathway_intersect_mat)
+jaccard <- pathway_intersect_mat / 
+  (outer(sizes, sizes, "+") - pathway_intersect_mat)
+# As a heatmap
+jaccard_df <- melt(jaccard)
+jaccard_plot <- 
+ggplot(jaccard_df, aes(Var2, Var1, fill = value)) +
+  geom_tile() +
+  geom_text(aes(label = sprintf("%.2f", value)), size = 3) +
+  scale_fill_gradient2(low = "white", high = "blue2") +
+  labs(fill = "Jaccard similarity") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+        axis.title = element_blank(),
+        axis.text.y = element_text(color = "black"))
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/pathway_jaccard.png"), jaccard_plot, width = 10, height = 7)
+```
+
