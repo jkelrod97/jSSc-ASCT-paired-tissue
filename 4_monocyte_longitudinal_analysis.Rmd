@@ -1021,13 +1021,18 @@ ggplot(nfkb_df, aes(x = comparison, y = neg_log_p)) +
   geom_point(aes(size = FoldEnrichment), color = "steelblue", alpha = 0.8) +
   geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") +
   annotate("text", x = 0.7, y = -log10(0.05) + 0.3,
-           label = "p = 0.05", color = "red", hjust = 0, size = 3.5) +
-  scale_size_continuous(name = "TNF-α signaling via \nNF-κB fold enrichment", range = c(4, 12)) +
-  labs(x = NULL, y = bquote(-log[10]~adj.~p~"for TNF-α signaling via NF-κB")) +
+           label = "p = 0.05", color = "red", hjust = 0, size = 6) +
+  scale_size_continuous(name = str_wrap("TNF-α signaling via NF-κB fold enrichment", 14), range = c(4, 12)) +
+  labs(x = NULL, y = expression("-log"[10]*"p-value")) +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, color = "black", size = 16),
+        axis.text.y = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        axis.title.y = element_text(size = 25),
+        legend.title = element_text(size = 18),
+        plot.margin = margin(t = 10, r = 10, b = 10, l = 40))  # extra left padding
 # Save as PNG
-ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/nfkb_plot.png"), bg = "white", width = 7, height = 6)
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/nfkb_plot.png"), nfkb_plot, bg = "white", width = 7, height = 6)
 
 # Extract results for inflammation
 inflammation_results <- lapply(results_list, function(x){filter(x, ID == "HALLMARK_INFLAMMATORY_RESPONSE") %>% select("ID", "p.adjust", "FoldEnrichment")})
@@ -1048,13 +1053,18 @@ ggplot(inflammation_df, aes(x = comparison, y = neg_log_p)) +
   geom_point(aes(size = FoldEnrichment), color = "steelblue", alpha = 0.8) +
   geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") +
   annotate("text", x = 0.7, y = -log10(0.05) + 0.3,
-           label = "p = 0.05", color = "red", hjust = 0, size = 3.5) +
-  scale_size_continuous(name = "Inflammatory response \nfold enrichment", range = c(4, 12)) +
-  labs(x = NULL, y = bquote(-log[10]~adj.~p~"for inflammatory response")) +
+           label = "p = 0.05", color = "red", hjust = 0, size = 6) +
+  scale_size_continuous(name = str_wrap("Inflammation response fold enrichment", 14), range = c(4, 12)) +
+  labs(x = NULL, y = expression("-log"[10]*"p-value")) +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, color = "black", size = 16),
+        axis.text.y = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        axis.title.y = element_text(size = 25),
+        legend.title = element_text(size = 18),
+        plot.margin = margin(t = 10, r = 10, b = 10, l = 40))  # extra left padding
 # Save as PNG
-ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/inflammation_plot.png"), bg = "white", width = 7, height = 6)
+ggsave(paste0(project_path, "figures/4_monocyte_longitudinal_analysis/inflammation_plot.png"), inflammation_plot, bg = "white", width = 7, height = 6)
 ```
 
 
