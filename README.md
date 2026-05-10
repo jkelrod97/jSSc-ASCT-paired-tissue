@@ -13,3 +13,4 @@ Files are executed in this order:
 6. **2_pbmc_cell_type_annotation.Rmd**: Perform multimodal clustering and cell type annotation on PBMCs.
 7. **3_monocyte_subtype_annotation.Rmd**: Sub-cluster monocytes and annotate subtypes.
 8. **4_monocyte_longitudinal_analysis.Rmd**: Implement longitudinal analysis to identify differentially express genes in jSSc monocytes over time since ASCT. 
+9. **5_generate_supplemental_spreadsheet.Rmd**: Generate Excel workbook with supplemental tables. 
