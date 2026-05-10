@@ -1,0 +1,385 @@
+---
+title: "5: Generate supplemental spreadsheet"
+output: html_notebook
+---
+
+In this final notebook, we generate the supplemental Excel sheet accompanying our manuscript. 
+
+We start by setting the project path and loading packages.
+
+```{r}
+# Set project path
+project_path <- "/Users/juliaelrod/Desktop/cmu/research/scleroderma/jSSc_ASCT_monocytes_manuscript/code_for_manuscript/"
+
+# Load packages
+library(dplyr)
+library(openxlsx2)
+library(Seurat)
+library(SeuratDisk)
+```
+
+We begin by creating the workbook.
+
+```{r}
+wb <- wb_workbook()
+```
+
+1. Get patient demographic information.
+
+```{r}
+# Read in patient meta data
+patient_meta_data <- read.csv(paste0(project_path, "data/patient_meta_data.csv"))
+
+# Remove blank rows
+patient_meta_data <- patient_meta_data %>% filter(if_all(everything(), ~ . != "" & !is.na(.)))
+# Get rid of extra space in Race column
+patient_meta_data$Race <- gsub(" ", "", patient_meta_data$Race)
+# Rename columns as desired
+patient_meta_data <- patient_meta_data %>%
+  dplyr::rename(
+    "NRCOS ID" = "subject_id",
+    "Age at time of ASCT (years)" = "Age.at.time.of.ASCT..years.",
+    "Age of onset (years)" = "Age.of.onset..years.",
+    "Disease duration at time of ASCT (years)" = "Disease.Duration.at.time.of.ASCT..years.",
+    "Disease subtype" = "Disease.Subtype",
+    "Autoantibody positivity" = "X....Auto.antibody.positivity",
+    "MRSS" = "X....mRSS.",
+    "Treatment prior to ASCT" = "Treatment.prior.to.ASCT",
+    "Major manifestations" = "Major.manifestations"
+  )
+```
+
+Get healthy demographics. Add both patient and healthy demographics to sheet.
+
+```{r}
+# Read in healthy demographics
+healthy_demographics <- read.csv(paste0(project_path, "data/healthy_demographics.csv"))
+
+# Get rid of unnecessary columns and rename variables as desired
+healthy_demographics <- healthy_demographics %>% 
+  mutate(
+  "Sample ID" = c("H1", "H2", "H3", "H4")) %>%
+  select(
+  "Sample ID",
+  "Age" = "age",
+  "Sex" = "sex",
+  "Race" = "race",
+  "Ethnicity" = "ethnicity"
+)
+
+# Get sheet #
+sheet_num <- length(wb$sheet_names) + 1
+# Generate sheet name
+sheet_name <- paste0("Table ", sheet_num, "꞉ Demographics")
+
+# Row positions
+patient_label_row <- 1
+patient_data_row  <- 2
+healthy_label_row <- patient_data_row + nrow(patient_meta_data) + 3  # +1 for header, +2 blank rows
+healthy_data_row  <- healthy_label_row + 1
+
+# Add to workbook
+wb <- wb %>%
+  wb_add_worksheet(sheet_name) %>%
+  wb_add_data(sheet = sheet_name, x = "Patient demographics", start_row = patient_label_row) %>%
+  wb_add_data(sheet = sheet_name, x = patient_meta_data,      start_row = patient_data_row) %>%
+  wb_add_data(sheet = sheet_name, x = "Healthy demographics", start_row = healthy_label_row) %>%
+  wb_add_data(sheet = sheet_name, x = healthy_demographics,   start_row = healthy_data_row)
+```
+
+2. Now add top 100 markers and genes used for annotation for each cell type
+
+```{r}
+# Load in Seurat object
+scler_pbmc <- LoadH5Seurat(paste0(project_path, "data/h5seurat/scler_pbmc_11.h5seurat"))
+
+# Get top 100 RNA markers for each cell type
+RNA_markers <- FindAllMarkers(scler_pbmc, assay = "RNA", group.by = "cell_type", only.pos = T) %>%
+  group_by(cluster) %>%
+  slice_min(order_by = p_val, n = 100, with_ties = FALSE) %>%
+  split(~ cluster)
+
+# Get top 20 ADT markers for each cell type
+ADT_markers <- FindAllMarkers(scler_pbmc, assay = "DSB", group.by = "cell_type", only.pos = T) %>%
+  group_by(cluster) %>%
+  slice_min(order_by = p_val, n = 20, with_ties = FALSE) %>%
+  split(~ cluster)
+
+# Get cluster #s for each cell type
+cluster_nums <- scler_pbmc$cell_type %>% levels() %>% lapply(function(CELLTYPE){scler_pbmc@meta.data %>% filter(cell_type == CELLTYPE) %>% pull(seurat_clusters) %>% unique() %>% sort()}) %>% setNames(levels(scler_pbmc$cell_type))
+
+# Get annotation markers
+RNA_annotation <- list(
+  "monocyte" = c("FCN1", "S100A8", "S100A9"),
+  "B cell" = c("CD79A", "MS4A1", "BANK1"),
+  "T/B biphenotypic" = c("CD79A", "MS4A1", "BANK1", "CD3D", "CD3E", "IL7R"),
+  "CD4+ T cell" = c("CD3D", "CD3E", "IL7R", "CD8A-", "CD8B-"),
+  "CD8+ T cell" = c("CD3D", "CD3E", "IL7R", "CD8A", "CD8B"),
+  "natural killer/T cell" = c("STAT4", "RORA"),
+  "natural killer" = c("GNLY", "NKG7", "KLRB1"),
+  "mDC" = c("CD1C", "CLEC10A"),
+  "pDC" = c("IL3RA", "LILRA4", "CLEC4C"),
+  "HSPC" = c("CD34", "MYB", "KIT"),
+  "platelet" = c("PF4", "PPBP", "TUBB1")
+)
+
+ADT_annotation <- list(
+  "monocyte" = c("CD14"),
+  "B cell" = c("CD19"),
+  "T/B biphenotypic" = c("CD19", "CD3"),
+  "CD4+ T cell" = c("CD3", "CD4"),
+  "CD8+ T cell" = c("CD3", "CD8"),
+  "natural killer/T cell" = c("CD3", "CD56", "CD16"),
+  "natural killer" = c("CD56", "CD16"),
+  "mDC" = c("HLA-DR"),
+  "pDC" = c("CD123"),
+  "HSPC" = c("CD99"),
+  "platelet" = c("CD41")
+)
+
+# Get cell types
+cell_types <- names(RNA_markers)
+
+# Function to display data as block
+make_block <- function(lst, label, n_rows) {
+  block <- data.frame(Section = c(label, rep("", n_rows - 1)))
+  for (ct in cell_types) {
+    vec <- lst[[ct]]
+    length(vec) <- n_rows
+    block[[ct]] <- vec
+  }
+  block
+}
+
+# Function to display data as single row
+make_single_row <- function(lst, label) {
+  block <- data.frame(Section = label)
+  for (ct in cell_types) {
+    block[[ct]] <- paste(lst[[ct]], collapse = ", ")
+  }
+  block
+}
+
+# Extract RNA and ADT genes
+RNA_genes <- lapply(RNA_markers, function(d) d$gene)
+ADT_genes <- lapply(ADT_markers, function(d) d$gene)   # adjust if ADT uses a different column name
+
+all_cell_df <- rbind(
+  make_single_row(cluster_nums,   "Cluster IDs"),
+  make_single_row(RNA_annotation, "RNA markers"),
+  make_single_row(ADT_annotation, "ADT markers"),
+  make_block(RNA_genes, "Top 100 DE genes",      100),
+  make_block(ADT_genes, "Top 20 DE antibodies",   20)
+)
+
+# Get sheet #
+sheet_num <- length(wb$sheet_names) + 1
+# Generate sheet name
+sheet_name <- paste0("Table ", sheet_num, "꞉ All cell markers")
+# Add to workbook
+wb <- wb %>%
+  wb_add_worksheet(sheet_name) %>%
+  wb_add_data(sheet = sheet_name, x = all_cell_df)
+```
+
+3. Now, we do the same thing for monocyte subtypes. 
+
+```{r}
+# Load in Seurat object
+monocytes <- LoadH5Seurat(paste0(project_path, "data/h5seurat/monocytes_3.h5seurat"))
+
+# Get top 100 RNA markers for each cell type
+RNA_markers <- FindAllMarkers(monocytes, assay = "RNA", group.by = "cell_type", only.pos = T) %>%
+  group_by(cluster) %>%
+  slice_min(order_by = p_val, n = 100, with_ties = FALSE) %>%
+  split(~ cluster)
+
+# Get top 20 ADT markers for each cell type
+ADT_markers <- FindAllMarkers(monocytes, assay = "DSB", group.by = "cell_type", only.pos = T) %>%
+  group_by(cluster) %>%
+  slice_min(order_by = p_val, n = 20, with_ties = FALSE) %>%
+  split(~ cluster)
+
+# Get cluster #s for each cell type
+monocytes$cell_type <- factor(monocytes$cell_type, unique(monocytes$cell_type))
+cluster_nums <- monocytes$cell_type %>% levels() %>% lapply(function(CELLTYPE){monocytes@meta.data %>% filter(cell_type == CELLTYPE) %>% pull(seurat_clusters) %>% unique() %>% sort()}) %>% setNames(levels(monocytes$cell_type))
+
+# Get annotation markers
+RNA_annotation <- list(
+  "CD14+" = c("CD14"),
+  "CD16+" = c("FCGR3A"),
+  "B-like" = c("CD79A", "MS4A1"),
+  "T-like" = c("CD3E", "CD3D"),
+  "NK-like" = c("NKG7", "KLRD1")
+)
+
+ADT_annotation <- list(
+  "CD14+" = c("CD14"),
+  "CD16+" = c("CD16"),
+  "B-like" = c("CD19", "IgD"),
+  "T-like" = c("CD3"),
+  "NK-like" = c("CD56")
+)
+
+# Get cell types
+cell_types <- names(RNA_markers)
+
+
+# Extract RNA and ADT genes
+RNA_genes <- lapply(RNA_markers, function(d) d$gene)
+ADT_genes <- lapply(ADT_markers, function(d) d$gene)   # adjust if ADT uses a different column name
+
+monocyte_df <- rbind(
+  make_single_row(cluster_nums,   "Cluster IDs"),
+  make_single_row(RNA_annotation, "RNA markers"),
+  make_single_row(ADT_annotation, "ADT markers"),
+  make_block(RNA_genes, "Top 100 DE genes",      100),
+  make_block(ADT_genes, "Top 20 DE antibodies",   20)
+)
+
+# Get sheet #
+sheet_num <- length(wb$sheet_names) + 1
+# Generate sheet name
+sheet_name <- paste0("Table ", sheet_num, "꞉ Monocyte markers")
+# Add to workbook
+wb <- wb %>%
+  wb_add_worksheet(sheet_name) %>%
+  wb_add_data(sheet = sheet_name, x = monocyte_df)
+```
+
+4-7. Now, let's also add the cell type counts 
+
+```{r}
+# Load in cell type counts workbook (I already made this)
+cell_type_wb <- wb_load(paste0(project_path,"data/cell_count_csvs/cell_type_tables.xlsx"))
+
+# New sheet names
+new_names <- c("All cts by lib",
+               "All cts by time",
+               "Mono. cts by lib",
+               "Mono. cts by time")
+
+# Iteratively add sheets to wb
+for (i in 1:4) {
+  sn <- cell_type_wb$get_sheet_names()[i]
+  df <- wb_to_df(cell_type_wb, sheet = sn)
+  # Get sheet #
+  sheet_num <- length(wb$sheet_names) + 1
+  # Generate sheet name
+  sheet_name <- paste0("Table ", sheet_num, "꞉ ", new_names[i])
+  wb <- wb %>%
+    wb_add_worksheet(sheet_name) %>%
+    wb_add_data(sheet = sheet_name, x = df)
+}
+```
+
+8. Decreasing longitudinal DEGs in SSc monocytes
+
+```{r}
+results_dir <- paste0(project_path, "data/DEG_pathway_CSVs/")
+down_res <- read.csv(paste0(results_dir, "down_DEGs.csv"))
+
+# Adjust names + select desired variables
+down_res <- down_res %>% select(
+  "Gene" = "name",
+  "P-value" = "pval",
+  "Adjusted p-value" = "adj_pval",
+  "Log-fold change" = "lfc"
+)
+
+# Get sheet #
+sheet_num <- length(wb$sheet_names) + 1
+# Generate sheet name
+sheet_name <- paste0("Table ", sheet_num, "꞉ ↓ long. monocyte DEGs")
+# Add to workbook
+wb <- wb %>%
+  wb_add_worksheet(sheet_name) %>%
+  wb_add_data(sheet = sheet_name, x = down_res)
+```
+
+9. Increasing longitudinal DEGs in SSc monocytes
+
+```{r}
+up_res <- read.csv(paste0(results_dir, "up_DEGs.csv"))
+
+# Adjust names + select desired variables
+up_res <- up_res %>% select(
+  "Gene" = "name",
+  "P-value" = "pval",
+  "Adjusted p-value" = "adj_pval",
+  "Log-fold change" = "lfc"
+)
+
+# Get sheet #
+sheet_num <- length(wb$sheet_names) + 1
+# Generate sheet name
+sheet_name <- paste0("Table ", sheet_num, "꞉ ↑ long. monocyte DEGs")
+# Add to workbook
+wb <- wb %>%
+  wb_add_worksheet(sheet_name) %>%
+  wb_add_data(sheet = sheet_name, x = up_res)
+```
+
+10. Decreasing longitudinal pathways in SSc monocytes 
+
+```{r}
+down_pathways <- read.csv(paste0(results_dir, "down_GSEA.csv"))
+# Only include pvalue < 0.01 and rename variables
+down_pathways <- down_pathways %>%
+  filter(pvalue < 0.01) %>%
+  select("Pathway ID" = "ID",
+         "Fold enrichment" = "FoldEnrichment",
+         "P-value" = "pvalue",
+         "Adjusted p-value" = "p.adjust",
+         "Genes" = "geneID",
+         "Number of genes" = "Count")
+
+# Get sheet #
+sheet_num <- length(wb$sheet_names) + 1
+# Generate sheet name
+sheet_name <- paste0("Table ", sheet_num, "꞉ ↓ long. monocyte GSEA")
+# Add to workbook
+wb <- wb %>%
+  wb_add_worksheet(sheet_name) %>%
+  wb_add_data(sheet = sheet_name, x = down_pathways)
+```
+
+11. Increasing longitudinal pathways in SSc monocytes 
+
+```{r}
+up_pathways <- read.csv(paste0(results_dir, "up_GSEA.csv"))
+# Only include pvalue < 0.01 and rename variables
+up_pathways <- up_pathways %>%
+  filter(pvalue < 0.01) %>%
+  select("Pathway ID" = "ID",
+         "Fold enrichment" = "FoldEnrichment",
+         "P-value" = "pvalue",
+         "Adjusted p-value" = "p.adjust",
+         "Genes" = "geneID",
+         "Number of genes" = "Count")
+
+# Get sheet #
+sheet_num <- length(wb$sheet_names) + 1
+# Generate sheet name
+sheet_name <- paste0("Table ", sheet_num, "꞉ ↑ long. monocyte GSEA")
+# Add to workbook
+wb <- wb %>%
+  wb_add_worksheet(sheet_name) %>%
+  wb_add_data(sheet = sheet_name, x = up_pathways)
+```
+
+
+
+
+Save workbook.
+
+```{r}
+# First get rid of #N/A values
+for (sn in wb$get_sheet_names()) {
+  df <- wb_to_df(wb, sheet = sn, na.strings = "#N/A")
+  wb <- wb_add_data(wb, sheet = sn, x = df, na.strings = "")
+}
+
+wb_save(wb, paste0(project_path, "data/supplement/JKE_supplement.xlsx"), overwrite = T)
+```
+
