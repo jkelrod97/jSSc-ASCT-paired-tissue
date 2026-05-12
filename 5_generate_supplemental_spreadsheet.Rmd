@@ -3,7 +3,7 @@ title: "5: Generate supplemental spreadsheet"
 output: html_notebook
 ---
 
-In this final notebook, we generate the supplemental Excel sheet accompanying our manuscript. 
+In this final notebook, we generate the supplemental Excel workbook accompanying our manuscript. 
 
 We start by setting the project path and loading packages.
 
@@ -23,6 +23,37 @@ We begin by creating the workbook.
 
 ```{r}
 wb <- wb_workbook()
+
+# Helper: add a bold title/label cell
+wb_add_title <- function(wb, sheet, x, start_row, start_col = 1) {
+  wb %>%
+    wb_add_data(sheet = sheet, x = x, start_row = start_row, start_col = start_col) %>%
+    wb_add_font(sheet = sheet,
+                dims = wb_dims(rows = start_row, cols = start_col),
+                bold = "1")
+}
+
+# Helper: add a data frame with bolded headers and (optionally) bolded first column.
+# Numeric columns are rounded to 3 significant figures.
+wb_add_table <- function(wb, sheet, x, start_row = 1, start_col = 1, bold_first_col = TRUE) {
+  # Round numeric columns to 3 significant figures (base R, tolerates blank colnames)
+  num_cols <- vapply(x, is.numeric, logical(1))
+  x[num_cols] <- lapply(x[num_cols], signif, 3)
+  end_col <- start_col + ncol(x) - 1
+  wb <- wb %>%
+    wb_add_data(sheet = sheet, x = x, start_row = start_row, start_col = start_col) %>%
+    wb_add_font(sheet = sheet,
+                dims = wb_dims(rows = start_row, cols = start_col:end_col),
+                bold = "1")
+  if (bold_first_col && nrow(x) > 0) {
+    wb <- wb %>%
+      wb_add_font(sheet = sheet,
+                  dims = wb_dims(rows = (start_row + 1):(start_row + nrow(x)),
+                                 cols = start_col),
+                  bold = "1")
+  }
+  wb
+}
 ```
 
 1. Get patient demographic information.
@@ -82,10 +113,10 @@ healthy_data_row  <- healthy_label_row + 1
 # Add to workbook
 wb <- wb %>%
   wb_add_worksheet(sheet_name) %>%
-  wb_add_data(sheet = sheet_name, x = "Patient demographics", start_row = patient_label_row) %>%
-  wb_add_data(sheet = sheet_name, x = patient_meta_data,      start_row = patient_data_row) %>%
-  wb_add_data(sheet = sheet_name, x = "Healthy demographics", start_row = healthy_label_row) %>%
-  wb_add_data(sheet = sheet_name, x = healthy_demographics,   start_row = healthy_data_row)
+  wb_add_title(sheet = sheet_name, x = "Patient demographics", start_row = patient_label_row) %>%
+  wb_add_table(sheet = sheet_name, x = patient_meta_data,      start_row = patient_data_row) %>%
+  wb_add_title(sheet = sheet_name, x = "Healthy demographics", start_row = healthy_label_row) %>%
+  wb_add_table(sheet = sheet_name, x = healthy_demographics,   start_row = healthy_data_row)
 ```
 
 2. Now add top 100 markers and genes used for annotation for each cell type
@@ -172,6 +203,8 @@ all_cell_df <- rbind(
   make_block(RNA_genes, "Top 100 DE genes",      100),
   make_block(ADT_genes, "Top 20 DE antibodies",   20)
 )
+# Blank out the "Section" header
+colnames(all_cell_df)[1] <- ""
 
 # Get sheet #
 sheet_num <- length(wb$sheet_names) + 1
@@ -180,7 +213,7 @@ sheet_name <- paste0("Table ", sheet_num, "꞉ All cell markers")
 # Add to workbook
 wb <- wb %>%
   wb_add_worksheet(sheet_name) %>%
-  wb_add_data(sheet = sheet_name, x = all_cell_df)
+  wb_add_table(sheet = sheet_name, x = all_cell_df)
 ```
 
 3. Now, we do the same thing for monocyte subtypes. 
@@ -237,6 +270,8 @@ monocyte_df <- rbind(
   make_block(RNA_genes, "Top 100 DE genes",      100),
   make_block(ADT_genes, "Top 20 DE antibodies",   20)
 )
+# Blank out the "Section" header
+colnames(monocyte_df)[1] <- ""
 
 # Get sheet #
 sheet_num <- length(wb$sheet_names) + 1
@@ -245,7 +280,7 @@ sheet_name <- paste0("Table ", sheet_num, "꞉ Monocyte markers")
 # Add to workbook
 wb <- wb %>%
   wb_add_worksheet(sheet_name) %>%
-  wb_add_data(sheet = sheet_name, x = monocyte_df)
+  wb_add_table(sheet = sheet_name, x = monocyte_df)
 ```
 
 4. Now, let's also add the cell type counts 
@@ -270,7 +305,7 @@ pct_by_timepoint <- counts_by_timepoint %>%
   dplyr::slice(-dplyr::n()) %>%   # drop the grand "Total" row
   dplyr::mutate(dplyr::across(-`Cell type`, ~ {
     x <- as.numeric(.)
-    round(x / x[length(x)] * 100, 2)
+    x / x[length(x)] * 100
   }))
 
 counts_by_library <- table(scler_pbmc$cell_type,
@@ -291,7 +326,7 @@ pct_by_library <- counts_by_library %>%
   dplyr::slice(-dplyr::n()) %>%   # drop the grand "Total" row
   dplyr::mutate(dplyr::across(-`Cell type`, ~ {
     x <- as.numeric(.)
-    round(x / x[length(x)] * 100, 2)
+    x / x[length(x)] * 100
   }))
 
 # Get sheet #
@@ -314,25 +349,25 @@ lower_data_row  <- lower_label_row + 1
 wb <- wb %>%
   wb_add_worksheet(sheet_name) %>%
   # Upper left
-  wb_add_data(sheet = sheet_name, x = "Raw counts by time point",
-              start_row = upper_label_row, start_col = left_col) %>%
-  wb_add_data(sheet = sheet_name, x = counts_by_timepoint,
-              start_row = upper_data_row,  start_col = left_col) %>%
+  wb_add_title(sheet = sheet_name, x = "Raw counts by time point",
+               start_row = upper_label_row, start_col = left_col) %>%
+  wb_add_table(sheet = sheet_name, x = counts_by_timepoint,
+               start_row = upper_data_row,  start_col = left_col) %>%
   # Upper right
-  wb_add_data(sheet = sheet_name, x = "Raw counts by library",
-              start_row = upper_label_row, start_col = right_col) %>%
-  wb_add_data(sheet = sheet_name, x = counts_by_library,
-              start_row = upper_data_row,  start_col = right_col) %>%
+  wb_add_title(sheet = sheet_name, x = "Raw counts by library",
+               start_row = upper_label_row, start_col = right_col) %>%
+  wb_add_table(sheet = sheet_name, x = counts_by_library,
+               start_row = upper_data_row,  start_col = right_col) %>%
   # Lower left
-  wb_add_data(sheet = sheet_name, x = "Proportions by time point",
-              start_row = lower_label_row, start_col = left_col) %>%
-  wb_add_data(sheet = sheet_name, x = pct_by_timepoint,
-              start_row = lower_data_row,  start_col = left_col) %>%
+  wb_add_title(sheet = sheet_name, x = "Proportions by time point",
+               start_row = lower_label_row, start_col = left_col) %>%
+  wb_add_table(sheet = sheet_name, x = pct_by_timepoint,
+               start_row = lower_data_row,  start_col = left_col) %>%
   # Lower right
-  wb_add_data(sheet = sheet_name, x = "Proportions by library",
-              start_row = lower_label_row, start_col = right_col) %>%
-  wb_add_data(sheet = sheet_name, x = pct_by_library,
-              start_row = lower_data_row,  start_col = right_col)
+  wb_add_title(sheet = sheet_name, x = "Proportions by library",
+               start_row = lower_label_row, start_col = right_col) %>%
+  wb_add_table(sheet = sheet_name, x = pct_by_library,
+               start_row = lower_data_row,  start_col = right_col)
 ```
 
 5. Same thing for monocyte subtypes.
@@ -357,7 +392,7 @@ pct_by_timepoint_monocytes <- counts_by_timepoint_monocytes %>%
   dplyr::slice(-dplyr::n()) %>%   # drop the grand "Total" row
   dplyr::mutate(dplyr::across(-`Cell type`, ~ {
     x <- as.numeric(.)
-    round(x / x[length(x)] * 100, 2)
+    x / x[length(x)] * 100
   }))
 
 counts_by_library_monocytes <- table(monocytes$cell_type,
@@ -378,7 +413,7 @@ pct_by_library_monocytes <- counts_by_library_monocytes %>%
   dplyr::slice(-dplyr::n()) %>%   # drop the grand "Total" row
   dplyr::mutate(dplyr::across(-`Cell type`, ~ {
     x <- as.numeric(.)
-    round(x / x[length(x)] * 100, 2)
+    x / x[length(x)] * 100
   }))
 
 # Get sheet #
@@ -401,25 +436,25 @@ lower_data_row  <- lower_label_row + 1
 wb <- wb %>%
   wb_add_worksheet(sheet_name) %>%
   # Upper left
-  wb_add_data(sheet = sheet_name, x = "Raw counts by time point",
-              start_row = upper_label_row, start_col = left_col) %>%
-  wb_add_data(sheet = sheet_name, x = counts_by_timepoint_monocytes,
-              start_row = upper_data_row,  start_col = left_col) %>%
+  wb_add_title(sheet = sheet_name, x = "Raw counts by time point",
+               start_row = upper_label_row, start_col = left_col) %>%
+  wb_add_table(sheet = sheet_name, x = counts_by_timepoint_monocytes,
+               start_row = upper_data_row,  start_col = left_col) %>%
   # Upper right
-  wb_add_data(sheet = sheet_name, x = "Raw counts by library",
-              start_row = upper_label_row, start_col = right_col) %>%
-  wb_add_data(sheet = sheet_name, x = counts_by_library_monocytes,
-              start_row = upper_data_row,  start_col = right_col) %>%
+  wb_add_title(sheet = sheet_name, x = "Raw counts by library",
+               start_row = upper_label_row, start_col = right_col) %>%
+  wb_add_table(sheet = sheet_name, x = counts_by_library_monocytes,
+               start_row = upper_data_row,  start_col = right_col) %>%
   # Lower left
-  wb_add_data(sheet = sheet_name, x = "Proportions by time point",
-              start_row = lower_label_row, start_col = left_col) %>%
-  wb_add_data(sheet = sheet_name, x = pct_by_timepoint_monocytes,
-              start_row = lower_data_row,  start_col = left_col) %>%
+  wb_add_title(sheet = sheet_name, x = "Proportions by time point",
+               start_row = lower_label_row, start_col = left_col) %>%
+  wb_add_table(sheet = sheet_name, x = pct_by_timepoint_monocytes,
+               start_row = lower_data_row,  start_col = left_col) %>%
   # Lower right
-  wb_add_data(sheet = sheet_name, x = "Proportions by library",
-              start_row = lower_label_row, start_col = right_col) %>%
-  wb_add_data(sheet = sheet_name, x = pct_by_library_monocytes,
-              start_row = lower_data_row,  start_col = right_col)
+  wb_add_title(sheet = sheet_name, x = "Proportions by library",
+               start_row = lower_label_row, start_col = right_col) %>%
+  wb_add_table(sheet = sheet_name, x = pct_by_library_monocytes,
+               start_row = lower_data_row,  start_col = right_col)
 ```
 
 6. Longitudinal DEGs in SSc monocytes
@@ -459,15 +494,15 @@ data_row  <- 2
 wb <- wb %>%
   wb_add_worksheet(sheet_name) %>%
   # Left
-  wb_add_data(sheet = sheet_name, x = "Decreasing DEGs over time since ASCT in jSSc monocytes",
-              start_row = label_row, start_col = left_col) %>%
-  wb_add_data(sheet = sheet_name, x = down_res,
-              start_row = data_row,  start_col = left_col) %>%
+  wb_add_title(sheet = sheet_name, x = "Decreasing DEGs over time since ASCT in jSSc monocytes",
+               start_row = label_row, start_col = left_col) %>%
+  wb_add_table(sheet = sheet_name, x = down_res,
+               start_row = data_row,  start_col = left_col, bold_first_col = FALSE) %>%
   # Right
-  wb_add_data(sheet = sheet_name, x = "Increasing DEGs over time since ASCT in jSSc monocytes",
-              start_row = label_row, start_col = right_col) %>%
-  wb_add_data(sheet = sheet_name, x = up_res,
-              start_row = data_row,  start_col = right_col)
+  wb_add_title(sheet = sheet_name, x = "Increasing DEGs over time since ASCT in jSSc monocytes",
+               start_row = label_row, start_col = right_col) %>%
+  wb_add_table(sheet = sheet_name, x = up_res,
+               start_row = data_row,  start_col = right_col, bold_first_col = FALSE)
 ```
 
 7. Longitudinal pathways in SSc monocytes 
@@ -510,15 +545,15 @@ data_row  <- 2
 wb <- wb %>%
   wb_add_worksheet(sheet_name) %>%
   # Left
-  wb_add_data(sheet = sheet_name, x = "Decreasing pathways over time since ASCT in jSSc monocytes",
-              start_row = label_row, start_col = left_col) %>%
-  wb_add_data(sheet = sheet_name, x = down_pathways,
-              start_row = data_row,  start_col = left_col) %>%
+  wb_add_title(sheet = sheet_name, x = "Decreasing pathways over time since ASCT in jSSc monocytes",
+               start_row = label_row, start_col = left_col) %>%
+  wb_add_table(sheet = sheet_name, x = down_pathways,
+               start_row = data_row,  start_col = left_col, bold_first_col = FALSE) %>%
   # Right
-  wb_add_data(sheet = sheet_name, x = "Increasing pathways over time since ASCT in jSSc monocytes",
-              start_row = label_row, start_col = right_col) %>%
-  wb_add_data(sheet = sheet_name, x = up_pathways,
-              start_row = data_row,  start_col = right_col)
+  wb_add_title(sheet = sheet_name, x = "Increasing pathways over time since ASCT in jSSc monocytes",
+               start_row = label_row, start_col = right_col) %>%
+  wb_add_table(sheet = sheet_name, x = up_pathways,
+               start_row = data_row,  start_col = right_col, bold_first_col = FALSE)
 ```
 
 
@@ -529,6 +564,14 @@ Save workbook.
 for (sn in wb$get_sheet_names()) {
   df <- wb_to_df(wb, sheet = sn, na.strings = "#N/A")
   wb <- wb_add_data(wb, sheet = sn, x = df, na.strings = "")
+}
+
+# Auto-fit column widths on every sheet
+for (sn in wb$get_sheet_names()) {
+  df <- wb_to_df(wb, sheet = sn)
+  if (ncol(df) > 0) {
+    wb <- wb_set_col_widths(wb, sheet = sn, cols = 1:ncol(df), widths = "auto")
+  }
 }
 
 wb_save(wb, paste0(project_path, "data/supplement/JKE_supplement.xlsx"), overwrite = T)
